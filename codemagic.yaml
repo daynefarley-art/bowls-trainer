@@ -42,7 +42,8 @@ workflows:
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
-            --config Release
+            --config Release \
+            --archive-xcargs "CODE_SIGN_STYLE=Automatic"
 
     artifacts:
       - build/ios/ipa/*.ipa
