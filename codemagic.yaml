@@ -9,7 +9,7 @@ workflows:
       node: 20.11.1
       cocoapods: default
       vars:
-        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.bowlstrainer.app"
 
@@ -21,8 +21,6 @@ workflows:
       - name: Sync Capacitor iOS project
         script: |
           npx cap sync ios
-          cd ios/App
-          pod install
 
       - name: Set up code signing
         script: |
@@ -42,7 +40,7 @@ workflows:
       - name: Build ipa
         script: |
           xcode-project build-ipa \
-            --workspace "$XCODE_WORKSPACE" \
+            --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
             --config Release
 
