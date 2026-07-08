@@ -1,3 +1,4 @@
+ workflows:
   ios-build:
     name: Bowls Trainer iOS - Signed Build
     max_build_duration: 60
