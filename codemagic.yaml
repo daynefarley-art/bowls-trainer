@@ -12,48 +12,38 @@ workflows:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.bowlstrainer.app"
-      groups:
-        # Create this group in Codemagic UI (Teams > Integrations > Environment variables)
-        # with: APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID,
-        # APP_STORE_CONNECT_PRIVATE_KEY, CERTIFICATE_PRIVATE_KEY
-        - app_store_credentials
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.bowlstrainer.app
-    triggering:
-      events:
-        - push
-        - tag
-      branch_patterns:
-        - pattern: main
-          include: true
-          source: true
     scripts:
       - name: Install npm dependencies
         script: |
           npm ci || npm install
+
       - name: Sync Capacitor iOS project
         script: |
           npx cap sync ios
-      - name: Set up code signing (App Store)
+
+      - name: Set up code signing
         script: |
           keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
           keychain add-certificates
           xcode-project use-profiles
+
       - name: Set build number
         script: |
           cd ios/App
           BUILD_NUMBER=$(git rev-list --count HEAD)
           agvtool new-version -all "$BUILD_NUMBER"
+
       - name: Build ipa
         script: |
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
             --config Release
+
     artifacts:
       - build/ios/ipa/*.ipa
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
