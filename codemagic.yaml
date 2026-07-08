@@ -13,11 +13,7 @@ workflows:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.bowlstrainer.app"
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.bowlstrainer.app
-
-    scripts:
+         scripts:
       - name: Install npm dependencies
         script: |
           npm ci || npm install
