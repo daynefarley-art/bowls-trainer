@@ -1,0 +1,155 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-glow: var(--primary-glow);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-charcoal: var(--charcoal);
+  --color-bowl-forehand: var(--bowl-forehand);
+  --color-bowl-backhand: var(--bowl-backhand);
+
+
+  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --shadow-card: 0 4px 16px -4px oklch(0.2 0.02 160 / 0.08);
+  --shadow-elevated: 0 12px 32px -8px oklch(0.2 0.02 160 / 0.15);
+}
+
+:root {
+  --radius: 1rem;
+
+  /* Bowls Trainer palette: green / white / charcoal */
+  --background: oklch(0.985 0.005 150);
+  --foreground: oklch(0.22 0.02 200);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.02 200);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.02 200);
+
+  --primary: oklch(0.36 0.07 156);          /* deep green #114B3A */
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-glow: oklch(0.48 0.09 156);
+
+  --charcoal: oklch(0.28 0.012 220);        /* #2D3436 */
+  --bowl-forehand: oklch(0.40 0.09 156);    /* primary green for forehand markers */
+  --bowl-backhand: oklch(0.45 0.09 220);    /* deep teal-blue, on-brand secondary */
+
+
+  --secondary: oklch(0.95 0.008 160);
+  --secondary-foreground: oklch(0.28 0.012 220);
+
+  --muted: oklch(0.95 0.008 160);
+  --muted-foreground: oklch(0.5 0.015 200);
+
+  --accent: oklch(0.78 0.13 86);            /* gold #D4AF37 */
+  --accent-foreground: oklch(0.22 0.02 80);
+
+  --success: oklch(0.6 0.14 152);
+  --success-foreground: oklch(0.99 0 0);
+
+  --destructive: oklch(0.58 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --border: oklch(0.92 0.008 160);
+  --input: oklch(0.92 0.008 160);
+  --ring: oklch(0.36 0.07 156);
+
+  --gradient-primary: linear-gradient(135deg, var(--primary), var(--primary-glow));
+  --gradient-hero: linear-gradient(160deg, oklch(0.30 0.06 156), oklch(0.44 0.09 156));
+}
+
+.dark {
+  --background: oklch(0.18 0.01 200);
+  --foreground: oklch(0.97 0 0);
+  --card: oklch(0.23 0.015 200);
+  --card-foreground: oklch(0.97 0 0);
+  --popover: oklch(0.23 0.015 200);
+  --popover-foreground: oklch(0.97 0 0);
+  --primary: oklch(0.62 0.15 150);
+  --primary-foreground: oklch(0.15 0.01 200);
+  --secondary: oklch(0.28 0.015 200);
+  --secondary-foreground: oklch(0.97 0 0);
+  --muted: oklch(0.28 0.015 200);
+  --muted-foreground: oklch(0.7 0.01 200);
+  --accent: oklch(0.32 0.04 150);
+  --accent-foreground: oklch(0.97 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.15 150);
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  html, body { height: 100%; }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.01em; }
+}
+
+@utility bt-gradient-hero { background: var(--gradient-hero); }
+@utility bt-gradient-primary { background: var(--gradient-primary); }
+@utility bt-shadow-card { box-shadow: var(--shadow-card); }
+@utility bt-shadow-elevated { box-shadow: var(--shadow-elevated); }
+
+/* Full-screen visual scoring mode: hide bottom nav, drop layout padding. */
+body.bt-fullscreen-scoring [data-bottom-nav] { display: none !important; }
+body.bt-fullscreen-scoring [data-auth-layout] { padding-bottom: 0 !important; }
+
+@keyframes bt-bowl-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.85; }
+}
+.bt-bowl-pulse { animation: bt-bowl-pulse 1.4s ease-in-out infinite; }
+
+@keyframes bt-marker-settle {
+  0%   { transform: scale(1.35); opacity: 0.85; }
+  60%  { transform: scale(0.94); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.bt-marker-settle { animation: bt-marker-settle 180ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both; }
+
+@keyframes bt-ring-glow {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.9; }
+}
+.bt-ring-glow { animation: bt-ring-glow 1.2s ease-in-out infinite; }
+
+

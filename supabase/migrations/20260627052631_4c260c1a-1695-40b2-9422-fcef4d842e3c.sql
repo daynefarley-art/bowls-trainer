@@ -1,0 +1,1 @@
+GRANT EXECUTE ON FUNCTION public.validate_invitation(text) TO anon;
