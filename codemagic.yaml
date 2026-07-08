@@ -1,6 +1,6 @@
 workflows:
-  ios-testflight:
-    name: Bowls Trainer iOS - TestFlight
+  ios-build:
+    name: Bowls Trainer iOS - Signed Build
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
@@ -12,7 +12,6 @@ workflows:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.bowlstrainer.app"
-        APP_STORE_APPLE_ID: 0000000000
       groups:
         # Create this group in Codemagic UI (Teams > Integrations > Environment variables)
         # with: APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID,
@@ -47,9 +46,8 @@ workflows:
       - name: Set build number
         script: |
           cd ios/App
-          LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo "0")
-          NEW_BUILD=$(($LATEST_BUILD + 1))
-          agvtool new-version -all $NEW_BUILD
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          agvtool new-version -all "$BUILD_NUMBER"
       - name: Build ipa
         script: |
           xcode-project build-ipa \
@@ -60,9 +58,3 @@ workflows:
       - build/ios/ipa/*.ipa
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
       - /tmp/xcodebuild_logs/*.log
-    publishing:
-      app_store_connect:
-        auth: integration
-        submit_to_testflight: true
-        beta_groups:
-          - Internal Testers
