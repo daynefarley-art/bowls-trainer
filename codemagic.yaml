@@ -26,6 +26,10 @@ workflows:
         script: |
           npm ci || npm install
 
+      - name: Build web app
+        script: |
+          npm run build
+
       - name: Sync Capacitor iOS project
         script: |
           npx cap sync ios
@@ -36,11 +40,10 @@ workflows:
           keychain add-certificates
           xcode-project use-profiles
 
-      - name: Set version and build number
+      - name: Set build number
         script: |
           cd ios/App
           BUILD_NUMBER=$(git rev-list --count HEAD)
-          agvtool new-marketing-version 1.0
           agvtool new-version -all "$BUILD_NUMBER"
 
       - name: Archive app
