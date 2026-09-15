@@ -24,7 +24,8 @@ workflows:
     scripts:
       - name: Install npm dependencies
         script: |
-          npm ci || npm install
+          rm -rf node_modules
+          npm install --include=optional
 
       - name: Build web app
         script: |
