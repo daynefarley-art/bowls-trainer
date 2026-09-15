@@ -14,6 +14,7 @@ workflows:
 
       xcode: 26.0
       node: 20.11.1
+
       vars:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
@@ -29,10 +30,9 @@ workflows:
         script: |
           npx cap sync ios
 
-      - name: Set up code signing
+      - name: Apply Codemagic signing profiles
         script: |
           keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
           keychain add-certificates
           xcode-project use-profiles
 
@@ -48,34 +48,14 @@ workflows:
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
-            -archivePath build/ios/xcarchive/App.xcarchive \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            CODE_SIGN_STYLE=Manual \
-            -allowProvisioningUpdates
+            -destination "generic/platform=iOS" \
+            -archivePath build/ios/xcarchive/App.xcarchive
 
       - name: Export IPA
         script: |
-          cat > ExportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store-connect</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>89Q6ZH7Q53</string>
-          </dict>
-          </plist>
-          EOF
-
-          xcodebuild -exportArchive \
-            -archivePath build/ios/xcarchive/App.xcarchive \
-            -exportPath build/ios/ipa \
-            -exportOptionsPlist ExportOptions.plist \
-            -allowProvisioningUpdates
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
 
     artifacts:
       - build/ios/ipa/*.ipa
