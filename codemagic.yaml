@@ -44,7 +44,7 @@
             -archivePath build/ios/xcarchive/App.xcarchive \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
             -allowProvisioningUpdates
 
       - name: Export IPA
@@ -57,7 +57,7 @@
             <key>method</key>
             <string>app-store-connect</string>
             <key>signingStyle</key>
-            <string>automatic</string>
+            <string>manual</string>
             <key>teamID</key>
             <string>89Q6ZH7Q53</string>
           </dict>
