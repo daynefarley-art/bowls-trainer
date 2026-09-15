@@ -24,8 +24,8 @@ workflows:
     scripts:
       - name: Install npm dependencies
         script: |
-          rm -rf node_modules
-          npm install --include=optional
+          rm -rf node_modules package-lock.json
+          npm install
 
       - name: Build web app
         script: |
