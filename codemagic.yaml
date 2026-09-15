@@ -36,10 +36,11 @@ workflows:
           keychain add-certificates
           xcode-project use-profiles
 
-      - name: Set build number
+      - name: Set version and build number
         script: |
           cd ios/App
           BUILD_NUMBER=$(git rev-list --count HEAD)
+          agvtool new-marketing-version 1.0
           agvtool new-version -all "$BUILD_NUMBER"
 
       - name: Archive app
