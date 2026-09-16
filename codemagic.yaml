@@ -96,6 +96,7 @@ workflows:
 
       - name: Sync Capacitor Android project
         script: |
+          mkdir -p android/app/src/main/assets
           npx cap sync android
 
       - name: Set Android version
