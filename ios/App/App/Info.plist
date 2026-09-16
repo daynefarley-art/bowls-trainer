@@ -5,7 +5,11 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Bowls Trainer uses the camera so Head Scan can photograph the head and place your bowls on the Visual Target. Photos stay on your device and are never saved or uploaded.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Bowls Trainer only needs this if you choose to save a Head Scan photo. Head Scan photos are otherwise discarded.</string>
+	<string>Bowls Trainer only needs this if you choose to save a Head Scan photo of your bowls to your photo library. Head Scan photos are otherwise discarded.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Bowls Trainer can open a photo you already took of a head of bowls so Head Scan can measure it, instead of photographing the head live. Photos you choose stay on your device and are never uploaded.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Bowls Trainer reads the motion and tilt sensors so Head Scan can check your phone is held level before it measures a head of bowls.</string>
     <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
