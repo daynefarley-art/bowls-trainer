@@ -82,7 +82,7 @@ workflows:
 
     environment:
       node: 22.12.0
-      java: 17
+      java: 21
 
     scripts:
       - name: Install npm dependencies
