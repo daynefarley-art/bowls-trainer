@@ -137,6 +137,13 @@ function UserDetail() {
           </Button>
         </Link>
 
+        <Link to="/admin/dev/bsi/$userId" params={{ userId }}>
+          <Button className="w-full" variant="outline">
+            BSI diagnostic (weights &amp; session impact)
+          </Button>
+        </Link>
+
+
         <div className="flex gap-1 overflow-x-auto rounded-2xl bg-card p-1 bt-shadow-elevated">
           {(["overview", "sessions", "drills", "challenges", "bsi"] as Tab[]).map((t) => (
             <button

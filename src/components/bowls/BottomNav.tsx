@@ -50,6 +50,12 @@ export function BottomNav() {
               to={to}
               className={`relative flex flex-col items-center gap-1 py-2 text-[11px] font-semibold ${active ? "text-primary" : "text-muted-foreground"}`}
             >
+              {active && (
+                <span
+                  aria-hidden="true"
+                  className="bt-nav-indicator absolute -top-0.5 h-1 w-8 rounded-full"
+                />
+              )}
               <span className="relative">
                 <Icon className="h-6 w-6" strokeWidth={active ? 2.5 : 2} />
                 {showBadge && (

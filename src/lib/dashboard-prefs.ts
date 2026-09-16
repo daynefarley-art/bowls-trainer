@@ -24,3 +24,17 @@ export function markSmartPromptAnswered() {
     window.localStorage.setItem(SMART_PROMPT_KEY, "1");
   }
 }
+
+const TRAINER_DURATION_KEY = "bt_trainer_session_minutes";
+
+/** Last chosen AI Coach Session length. Defaults to 30 when never set. */
+export function getTrainerDurationPref(): number {
+  if (typeof window === "undefined") return 30;
+  const v = Number(window.localStorage.getItem(TRAINER_DURATION_KEY));
+  return v === 30 || v === 45 || v === 60 ? v : 30;
+}
+
+export function setTrainerDurationPref(minutes: number) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TRAINER_DURATION_KEY, String(minutes));
+}

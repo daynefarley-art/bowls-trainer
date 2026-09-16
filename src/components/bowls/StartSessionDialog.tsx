@@ -94,7 +94,7 @@ export function StartSessionDialog({ open, onOpenChange, userId, onStarted }: Pr
       await startSession(userId, setup);
       onStarted();
       onOpenChange(false);
-      toast.success("Training session started");
+      toast.success("Practice started");
     } catch (e: any) {
       toast.error(e?.message ?? "Could not start session");
     } finally {
@@ -106,7 +106,7 @@ export function StartSessionDialog({ open, onOpenChange, userId, onStarted }: Pr
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Start Training Session</DialogTitle>
+          <DialogTitle>Start Practice</DialogTitle>
           <DialogDescription>
             Enter details once — every drill, challenge and game inside this session inherits
             them.

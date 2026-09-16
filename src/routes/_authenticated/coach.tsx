@@ -23,6 +23,7 @@ function CoachLayout() {
   const tabs = [
     { to: "/coach", label: "Requests" },
     { to: "/coach/players", label: "Players" },
+    { to: "/coach/programs", label: "Programs" },
   ];
   return (
     <>

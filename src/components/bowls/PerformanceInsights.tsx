@@ -4,19 +4,26 @@ import {
   collectVisualTaps,
   handAccuracy,
   lengthAccuracy,
-  performanceZones,
+  finishZones,
   missAnalysis,
   weightVsLine,
   coachingFocus,
-  bowlingDNA,
+  bowlingDNAActionable,
+  coachSummaryBullets,
   smartCoachingInsights,
   whatIfMissesConverted,
   trendDelta,
   drawLengthForSlug,
+  handSwitchAnalysis,
+  handSwitchCoachInsights,
+  applyCoachVoice,
+  isDrawDrillSlug,
   type DrawLength,
   type Drill,
   type Result,
 } from "@/lib/bowls";
+
+
 
 type Props = {
   results: Result[];
@@ -69,18 +76,32 @@ export function PerformanceInsights({ results, drills, subjectName }: Props) {
     return arr;
   }, [allTaps, lengthF, handF, timeF]);
 
-  const zones = performanceZones(taps);
+  const zones = finishZones(taps);
   const miss = missAnalysis(taps);
   const wvl = weightVsLine(miss);
   const hands = handAccuracy(taps);
   const byLength = lengthAccuracy(taps);
   const focus = coachingFocus(miss, wvl, hands);
-  const dna = bowlingDNA(wvl, zones, null);
-  const insights = smartCoachingInsights(miss, wvl, hands);
+  const dnaText = bowlingDNAActionable(taps);
+  const summaryBullets = coachSummaryBullets(taps);
+  const drawDrillIdSet = useMemo(
+    () => new Set(drills.filter((d) => isDrawDrillSlug(d.slug)).map((d) => d.id)),
+    [drills],
+  );
+  const hsAnalysis = useMemo(
+    () => handSwitchAnalysis(results, drawDrillIdSet),
+    [results, drawDrillIdSet],
+  );
+  const hsInsights = useMemo(() => handSwitchCoachInsights(hsAnalysis), [hsAnalysis]);
+  const insights = useMemo(
+    () => applyCoachVoice([...smartCoachingInsights(miss, wvl, hands), ...hsInsights]),
+    [miss, wvl, hands, hsInsights],
+  );
   const shortTrend = trendDelta(taps, (p) => p.shortPct, 30);
   const narrowTrend = trendDelta(taps, (p) => p.narrowPct, 30);
   const wideTrend = trendDelta(taps, (p) => p.widePct, 30);
   const jackHighTrend = trendDelta(taps, (p) => p.jackHighPct, 30);
+
 
   const whatIfShort = whatIfMissesConverted(taps, "short", 0.5);
   const whatIfNarrow = whatIfMissesConverted(taps, "narrow", 0.5);
@@ -99,7 +120,7 @@ export function PerformanceInsights({ results, drills, subjectName }: Props) {
           <h2 className="font-display text-lg font-bold">Performance Insights</h2>
         </div>
         <div className="rounded-2xl bg-card p-5 bt-shadow-card text-center text-sm text-muted-foreground">
-          Record a few draw drills using Visual Target scoring to unlock Miss Analysis, Performance Zones and coaching focus.
+          Record a few draw drills using Visual Target scoring to unlock Miss Analysis, Finish Zones and coaching focus.
         </div>
       </section>
     );
@@ -166,26 +187,43 @@ export function PerformanceInsights({ results, drills, subjectName }: Props) {
         )}
       </div>
 
-      {/* Bowling DNA */}
+      {/* Bowling DNA — actionable */}
       <div className="rounded-2xl bg-card p-5 bt-shadow-card">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-primary" />
           <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-muted-foreground">{yourOrTheir} Bowling DNA</p>
         </div>
-        <h3 className="mt-1 font-display text-xl font-extrabold">{dna.label}</h3>
-        <p className="text-sm text-muted-foreground">{dna.explanation}</p>
+        <p className="mt-2 text-sm leading-relaxed">{dnaText}</p>
       </div>
 
-      {/* Performance Zones */}
+      {/* Coach's Summary */}
+      {summaryBullets.length > 0 && (
+        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 bt-shadow-card">
+          <div className="flex items-center gap-2">
+            <Compass className="h-4 w-4 text-primary" />
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-primary">Coach's Summary</p>
+          </div>
+          <ul className="mt-2 space-y-1.5 text-sm leading-relaxed">
+            {summaryBullets.map((b, i) => (
+              <li key={i} className="flex gap-2"><span className="text-primary">•</span><span>{b}</span></li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Finish Zones */}
       <div className="rounded-2xl bg-card p-5 bt-shadow-card">
-        <h3 className="font-display font-bold">Performance Zones</h3>
+        <h3 className="font-display font-bold">Finish Zones</h3>
         <p className="text-xs text-muted-foreground">Where {subject.toLowerCase()} bowls finish, out of {zones.count} recorded.</p>
         <div className="mt-3 space-y-2">
-          <ZoneBar label="Elite (½ mat)" pct={zones.elitePct} color="var(--color-primary)" />
-          <ZoneBar label="Competitive (1 mat)" pct={zones.competitivePct} color="var(--color-bowl-forehand)" />
-          <ZoneBar label="Recovery (2 mat)" pct={zones.recoveryPct} color="var(--color-bowl-backhand)" />
-          <ZoneBar label="Misses (outside 1 mat)" pct={zones.missPct} color="var(--color-destructive)" />
+          <ZoneBar label="Elite (within ½ mat)" pct={zones.elitePct} color="var(--color-primary)" />
+          <ZoneBar label="Competitive (within 1 mat)" pct={zones.competitivePct} color="var(--color-bowl-forehand)" />
+          <ZoneBar label="Good Miss (long, 1–2 mats)" pct={zones.goodMissPct} color="var(--color-bowl-backhand)" />
+          <ZoneBar label="Miss (outside scoring zones)" pct={zones.missPct} color="var(--color-destructive)" />
         </div>
+        <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+          <b>Good Miss:</b> finished long of the jack, outside 1 mat but within 2 mats. Often still useful in match play.
+        </p>
       </div>
 
       {/* Miss Analysis */}
@@ -194,7 +232,7 @@ export function PerformanceInsights({ results, drills, subjectName }: Props) {
           <Target className="h-4 w-4 text-primary" />
           <h3 className="font-display font-bold">Miss Analysis</h3>
         </div>
-        <p className="text-xs text-muted-foreground">Bowls outside one mat of the jack: <b>{miss.count}</b></p>
+        <p className="text-xs text-muted-foreground">Bowls outside the scoring zones: <b>{miss.count}</b></p>
         {miss.count === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">No misses in this window — great work.</p>
         ) : (
@@ -203,39 +241,42 @@ export function PerformanceInsights({ results, drills, subjectName }: Props) {
             <MissPct label="Long" pct={miss.longPct} />
             <MissPct label="Narrow" pct={miss.narrowPct} trend={narrowTrend} invert />
             <MissPct label="Wide" pct={miss.widePct} trend={wideTrend} invert />
-            <MissPct label="Left" pct={miss.leftPct} />
-            <MissPct label="Right" pct={miss.rightPct} />
           </div>
         )}
       </div>
 
-      {/* Weight vs Line */}
+      {/* Weight vs Line — reframed as involvement, not competing percentages */}
       <div className="rounded-2xl bg-card p-5 bt-shadow-card">
-        <h3 className="font-display font-bold">Weight vs Line</h3>
+        <h3 className="font-display font-bold">What's causing the misses</h3>
         <div className="mt-2 grid grid-cols-2 gap-3 text-center">
           <div className="rounded-xl bg-secondary/40 p-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Weight errors</p>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Weight involved in misses</p>
             <p className="font-display text-2xl font-extrabold">{wvl.weightErrorPct}%</p>
           </div>
           <div className="rounded-xl bg-secondary/40 p-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Line errors</p>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Line involved in misses</p>
             <p className="font-display text-2xl font-extrabold">{wvl.lineErrorPct}%</p>
           </div>
         </div>
-        <p className="mt-3 text-sm">
-          <span className="text-muted-foreground">Primary Issue: </span>
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+          A single bowl can have both a weight and a line error, so these do not add to 100%.
+          {miss.count > 0 && wvl.lineErrorPct > 0 && (
+            <> Every bowl outside the scoring zones had a weight error; {wvl.lineErrorPct}% also had a line error.</>
+          )}
+        </p>
+        <p className="mt-2 text-sm">
+          <span className="text-muted-foreground">Primary issue: </span>
           <b className="text-foreground">{wvl.primary}</b>
         </p>
-        <p className="text-xs text-muted-foreground">{wvl.reason}</p>
       </div>
 
-      {/* Forehand vs Backhand */}
+      {/* Forehand vs Backhand — grouped */}
       {(hands.forehand.count > 0 || hands.backhand.count > 0) && (
         <div className="rounded-2xl bg-card p-5 bt-shadow-card">
           <h3 className="font-display font-bold">Forehand vs Backhand</h3>
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <HandCard title="Forehand" count={hands.forehand.count} narrow={hands.forehand.narrowPct} wide={hands.forehand.widePct} short={hands.forehand.shortPct} pastJack={hands.forehand.pastJackPct} online={hands.forehand.onlinePct} />
-            <HandCard title="Backhand" count={hands.backhand.count} narrow={hands.backhand.narrowPct} wide={hands.backhand.widePct} short={hands.backhand.shortPct} pastJack={hands.backhand.pastJackPct} online={hands.backhand.onlinePct} />
+            <HandGroupCard title="Forehand" p={hands.forehand} />
+            <HandGroupCard title="Backhand" p={hands.backhand} />
           </div>
         </div>
       )}
@@ -254,9 +295,9 @@ export function PerformanceInsights({ results, drills, subjectName }: Props) {
                   <span className="text-xs text-muted-foreground">{p.count} bowls</span>
                 </div>
                 <div className="mt-1 grid grid-cols-3 gap-2 text-xs">
-                  <span>Short: <b>{p.shortPct}%</b></span>
-                  <span>Within a Mat: <b>{p.jackHighPct}%</b></span>
-                  <span>Long: <b>{p.pastJackPct}%</b></span>
+                  <span>Perfect Zone: <b>{p.jackHighPct}%</b></span>
+                  <span>Missed Short: <b>{p.shortPct}%</b></span>
+                  <span>Missed Long: <b>{p.pastJackPct}%</b></span>
                 </div>
               </div>
             );
@@ -264,16 +305,19 @@ export function PerformanceInsights({ results, drills, subjectName }: Props) {
         </div>
       </div>
 
+
+
       {/* Trends */}
       {(shortTrend != null || narrowTrend != null || wideTrend != null || jackHighTrend != null) && (
         <div className="rounded-2xl bg-card p-5 bt-shadow-card">
           <h3 className="font-display font-bold">Improvement Tracking (30d)</h3>
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-            <TrendRow label="Short misses" delta={shortTrend} invert />
-            <TrendRow label="Within a Mat" delta={jackHighTrend} />
+            <TrendRow label="Missed Short" delta={shortTrend} invert />
+            <TrendRow label="Within 1 mat" delta={jackHighTrend} />
             <TrendRow label="Narrow" delta={narrowTrend} invert />
             <TrendRow label="Wide" delta={wideTrend} invert />
           </div>
+
         </div>
       )}
 
@@ -397,28 +441,41 @@ function TrendRow({ label, delta, invert }: { label: string; delta: number | nul
   );
 }
 
-function HandCard({
-  title, count, narrow, wide, short, pastJack, online,
+function HandGroupCard({
+  title, p,
 }: {
   title: string;
-  count: number;
-  narrow: number;
-  wide: number;
-  short: number;
-  pastJack: number;
-  online: number;
+  p: import("@/lib/bowls").AccuracyPattern;
 }) {
+  const onTarget = p.jackHighPct;
   return (
     <div className="rounded-xl bg-secondary/40 p-3 text-xs">
       <div className="flex items-center justify-between">
         <p className="font-semibold">{title}</p>
-        <span className="text-muted-foreground">{count} bowls</span>
+        <span className="text-muted-foreground">{p.count} bowl{p.count === 1 ? "" : "s"}</span>
       </div>
-      <div className="mt-2 space-y-0.5">
-        <p>Online: <b>{online}%</b></p>
-        <p>Narrow: <b>{narrow}%</b> · Wide: <b>{wide}%</b></p>
-        <p>Short: <b>{short}%</b> · Long: <b>{pastJack}%</b></p>
-      </div>
+      {p.count === 0 ? (
+        <p className="mt-2 text-muted-foreground">No bowls yet.</p>
+      ) : (
+        <>
+          <div className="mt-2 flex items-baseline justify-between rounded-lg bg-card/60 px-2 py-1.5">
+            <span className="text-[10px] font-bold uppercase text-muted-foreground">On Target</span>
+            <span className="font-display text-lg font-extrabold text-primary">{Math.round(onTarget)}%</span>
+          </div>
+          <div className="mt-2">
+            <p className="text-[10px] font-bold uppercase text-muted-foreground">Weight</p>
+            <p className="mt-0.5">• Short <b>{p.shortPct}%</b></p>
+            <p>• Long <b>{p.pastJackPct}%</b></p>
+          </div>
+          <div className="mt-2">
+            <p className="text-[10px] font-bold uppercase text-muted-foreground">Line</p>
+            <p className="mt-0.5">• Narrow <b>{p.narrowPct}%</b></p>
+            <p>• Wide <b>{p.widePct}%</b></p>
+          </div>
+        </>
+      )}
     </div>
   );
 }
+
+

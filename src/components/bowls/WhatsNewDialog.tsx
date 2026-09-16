@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,7 @@ import {
   sortItems,
   type ReleaseItem,
 } from "@/lib/whats-new";
+import { useActiveOrPausedPractice } from "@/hooks/use-practice-activity";
 
 const KIND_LABEL: Record<ReleaseItem["kind"], string> = {
   challenge: "New Challenge",
@@ -38,14 +39,25 @@ function itemActionLabel(item: ReleaseItem): string {
 export function WhatsNewDialog() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { activity } = useActiveOrPausedPractice();
+  const recorderRoute =
+    pathname.startsWith("/record") ||
+    pathname.startsWith("/record-draw") ||
+    pathname.startsWith("/challenge-record");
+
+  useEffect(() => {
+    if (recorderRoute || activity) setOpen(false);
+  }, [activity, recorderRoute]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const t = setTimeout(() => {
+      if (recorderRoute || activity) return;
       if (!hasSeenCurrentRelease()) setOpen(true);
     }, 600);
     return () => clearTimeout(t);
-  }, []);
+  }, [activity, recorderRoute]);
 
   const release = RELEASES.find((r) => r.version === CURRENT_RELEASE);
   if (!release) return null;

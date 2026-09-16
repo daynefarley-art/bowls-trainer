@@ -9,6 +9,7 @@ import { TrendingUp, TrendingDown, Minus, Clock, Target, ListChecks, Trophy, Gam
 
 import { ChallengeMasterySection } from "@/components/bowls/ChallengeAchievements";
 import { PerformanceInsights } from "@/components/bowls/PerformanceInsights";
+import { ThisWeekCard } from "@/components/bowls/ThisWeekCard";
 import {
   formatHM,
   trainingStats,
@@ -58,6 +59,38 @@ function ProgressPage() {
     },
   });
 
+  const { data: challengeResults } = useQuery({
+    queryKey: ["challenge_results", user.id],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("challenge_results")
+        .select("id, played_at, score, breakdown, duration_minutes")
+        .eq("user_id", user.id);
+      if (error) throw error;
+      return (data ?? []) as {
+        id: string;
+        played_at: string;
+        score: number;
+        breakdown: any;
+        duration_minutes: number | null;
+      }[];
+    },
+  });
+
+  const { data: sessionsAll } = useQuery({
+    queryKey: ["training_sessions_all", user.id],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("training_sessions")
+        .select("id, total_duration_minutes, session_started_at, status")
+        .eq("user_id", user.id)
+        .eq("status", "complete");
+      if (error) throw error;
+      return (data ?? []) as { id: string; total_duration_minutes: number | null; session_started_at: string; status: string }[];
+    },
+  });
+
+
   const drill = useMemo(() => {
     if (!drills?.length) return null;
     return drills.find((d) => d.slug === selectedSlug) ?? drills[0];
@@ -84,14 +117,25 @@ function ProgressPage() {
     <>
       <PageHeader title="Progress" subtitle="Track each drill over time" />
       <main className="mx-auto -mt-4 max-w-md space-y-4 px-5">
+        <LifetimeStatsSection
+          results={results ?? []}
+          challengeResults={challengeResults ?? []}
+          sessions={sessionsAll ?? []}
+        />
+
+        <ThisWeekCard userId={user.id} />
+
+
+
+
         {/* Manage history hub — links to screens where individual items can be deleted */}
         <section className="rounded-2xl bg-card p-4 bt-shadow-card">
           <h2 className="font-display text-base font-bold">Manage history</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Open a session, drill or challenge to view detail and delete entries.
+            Open a practice, drill or challenge to view detail and delete entries.
           </p>
           <div className="mt-3 grid grid-cols-1 gap-2">
-            <HistoryLink to="/sessions" icon={ListChecks} label="Sessions" hint="Tap a session → Delete Session" />
+            <HistoryLink to="/sessions" icon={ListChecks} label="Practices" hint="Tap a practice → Delete Session" />
             <HistoryLink to="/history" icon={Target} label="Drill Results" hint="Per-result Delete" />
             <HistoryLink to="/challenge-history" icon={Trophy} label="Challenges" hint="All attempts → Delete" />
             <div className="flex items-center gap-3 rounded-xl bg-secondary/40 px-3 py-2.5 text-left opacity-60">
@@ -168,6 +212,8 @@ function ProgressPage() {
 
         <ChallengeMasterySection userId={user.id} />
 
+
+
         <TrainingTimeSection results={results ?? []} />
       </main>
 
@@ -175,6 +221,172 @@ function ProgressPage() {
     </>
   );
 }
+
+// Per-activity duration cap (minutes) — guards against corrupt/idle-inflated durations.
+const MAX_ACTIVITY_MINUTES = 60;
+
+/**
+ * Count individual bowls represented by a stored breakdown JSON.
+ * Prefers explicit bowl records, falls back to summed category counts.
+ * Returns 0 for placeholder/empty rows (never fabricates a count).
+ */
+function countBowlsInBreakdown(breakdown: any): number {
+  if (!breakdown || typeof breakdown !== "object") return 0;
+
+  // 1. Explicit total_bowls field
+  if (typeof breakdown.total_bowls === "number" && breakdown.total_bowls > 0) {
+    return breakdown.total_bowls;
+  }
+
+  // 2. Top-level bowls array (per-bowl visual capture)
+  if (Array.isArray(breakdown.bowls)) return breakdown.bowls.length;
+
+  // 3. ends[].bowls[] — sum lengths
+  if (Array.isArray(breakdown.ends)) {
+    let sum = 0;
+    let hadBowls = false;
+    for (const end of breakdown.ends) {
+      if (end && Array.isArray(end.bowls)) {
+        sum += end.bowls.length;
+        hadBowls = true;
+      } else if (end && Array.isArray(end.outcomes)) {
+        sum += end.outcomes.length;
+        hadBowls = true;
+      }
+    }
+    if (hadBowls) return sum;
+  }
+
+  // 4. per_bowl.*.attempts (Keep It Up style)
+  if (breakdown.per_bowl && typeof breakdown.per_bowl === "object") {
+    let sum = 0;
+    for (const k of Object.keys(breakdown.per_bowl)) {
+      const v = breakdown.per_bowl[k];
+      if (v && typeof v.attempts === "number") sum += v.attempts;
+    }
+    if (sum > 0) return sum;
+  }
+
+  // 5. Sum numeric top-level category counts, excluding meta keys
+  const meta = new Set([
+    "ends", "bowls_per_end", "max_score", "total_ends", "total_bowls",
+    "total_score", "scoring_mode", "type", "mode", "ends_survived",
+    "duration_minutes", "drill_length",
+  ]);
+  let sum = 0;
+  for (const [k, v] of Object.entries(breakdown)) {
+    if (meta.has(k)) continue;
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) sum += v;
+  }
+  return sum;
+}
+
+function LifetimeStatsSection({
+  results,
+  challengeResults,
+  sessions,
+}: {
+  results: Result[];
+  challengeResults: { id: string; played_at: string; score: number; breakdown: any; duration_minutes: number | null }[];
+  sessions: { total_duration_minutes: number | null; session_started_at: string }[];
+}) {
+  // ---- Bowls delivered (source of truth: per-activity breakdowns) ----
+  const drillBowls = results.reduce((s, r) => s + countBowlsInBreakdown((r as any).breakdown), 0);
+  const challengeBowls = challengeResults.reduce((s, c) => s + countBowlsInBreakdown(c.breakdown), 0);
+  const totalBowls = drillBowls + challengeBowls;
+
+  // ---- Hours practised (per-activity durations, capped to guard corrupt values) ----
+  const clamp = (m: number | null | undefined) =>
+    !m || m <= 0 ? 0 : Math.min(m, MAX_ACTIVITY_MINUTES);
+  const drillMinutes = results.reduce((s, r) => s + clamp((r as any).duration_minutes), 0);
+  const challengeMinutes = challengeResults.reduce((s, c) => s + clamp(c.duration_minutes), 0);
+  const activeMinutes = drillMinutes + challengeMinutes;
+  const hoursPractised = activeMinutes / 60;
+
+  const drillsCompleted = results.length;
+  const challengesCompleted = challengeResults.length;
+  const highestBSI = results.reduce((m, r) => Math.max(m, Number(r.bsi ?? 0)), 0);
+
+  // Practice days = distinct dates across activities
+  const days = new Set<string>();
+  for (const r of results) days.add(new Date(r.played_at).toISOString().slice(0, 10));
+  for (const c of challengeResults) days.add(new Date(c.played_at).toISOString().slice(0, 10));
+  for (const s of sessions) days.add(new Date(s.session_started_at).toISOString().slice(0, 10));
+  const practiceDays = days.size;
+
+  // Streaks
+  const sortedDays = [...days].sort();
+  let longest = 0;
+  let run = 0;
+  let prev: number | null = null;
+  for (const d of sortedDays) {
+    const t = new Date(d).getTime();
+    if (prev != null && t - prev === 86_400_000) run += 1;
+    else run = 1;
+    longest = Math.max(longest, run);
+    prev = t;
+  }
+  let current = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let i = 0; i < 3650; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    if (days.has(key)) current += 1;
+    else if (i === 0) continue;
+    else break;
+  }
+
+  // Internal diagnostic — visible only via browser console.
+  if (typeof window !== "undefined") {
+    const excluded = results.filter((r) => (r as any).duration_minutes != null && (r as any).duration_minutes > MAX_ACTIVITY_MINUTES).length
+      + challengeResults.filter((c) => c.duration_minutes != null && c.duration_minutes > MAX_ACTIVITY_MINUTES).length;
+    // eslint-disable-next-line no-console
+    console.debug("[LifetimeStats:diagnostic]", {
+      drill_bowls: drillBowls,
+      challenge_bowls: challengeBowls,
+      total_lifetime_bowls: totalBowls,
+      drill_minutes_capped: drillMinutes,
+      challenge_minutes_capped: challengeMinutes,
+      total_hours_practised: hoursPractised,
+      drills_completed: drillsCompleted,
+      challenges_completed: challengesCompleted,
+      practice_days: practiceDays,
+      records_capped_over_max: excluded,
+      per_activity_cap_minutes: MAX_ACTIVITY_MINUTES,
+    });
+  }
+
+  const items = [
+    { emoji: "🎯", label: "Lifetime Bowls Delivered", value: String(totalBowls) },
+    { emoji: "⏱", label: "Hours practised", value: hoursPractised >= 1 ? `${hoursPractised.toFixed(1)}h` : `${Math.round(activeMinutes)}m` },
+    { emoji: "📚", label: "Drills completed", value: String(drillsCompleted) },
+    { emoji: "🏁", label: "Challenges completed", value: String(challengesCompleted) },
+    { emoji: "🔥", label: "Current streak", value: `${current} day${current === 1 ? "" : "s"}` },
+    { emoji: "🏆", label: "Longest streak", value: `${longest} day${longest === 1 ? "" : "s"}` },
+    { emoji: "🏅", label: "Highest BSI", value: highestBSI ? highestBSI.toFixed(0) : "—" },
+    { emoji: "📅", label: "Practice days", value: String(practiceDays) },
+  ];
+
+  return (
+    <section className="rounded-2xl bg-card p-4 bt-shadow-card">
+      <h2 className="font-display text-base font-bold">Lifetime Statistics</h2>
+      <p className="mt-0.5 text-xs text-muted-foreground">Your bowls journey so far.</p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {items.map((it) => (
+          <div key={it.label} className="rounded-xl bg-secondary/50 px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+              <span className="mr-1">{it.emoji}</span>{it.label}
+            </p>
+            <p className="mt-0.5 font-display text-xl font-extrabold">{it.value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -224,13 +436,13 @@ function TrainingTimeSection({ results }: { results: Result[] }) {
     <section className="space-y-3">
       <div className="flex items-center gap-2 px-1">
         <Clock className="h-4 w-4 text-primary" />
-        <h2 className="font-display text-lg font-bold">Training Time</h2>
+        <h2 className="font-display text-lg font-bold">Practice Time</h2>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <Stat label="This week" value={formatHM(stats.thisWeek)} />
         <Stat label="This month" value={formatHM(stats.thisMonth)} />
-        <Stat label="Avg / session" value={stats.sessions ? formatHM(stats.avgPerSession) : "—"} />
+        <Stat label="Avg / practice" value={stats.sessions ? formatHM(stats.avgPerSession) : "—"} />
         <Stat label="All time" value={formatHM(stats.allTime)} />
       </div>
 
@@ -402,24 +614,52 @@ function VisualScatterSection({ results, drills }: { results: Result[]; drills: 
 
       <div className="rounded-2xl bg-card p-4 bt-shadow-card">
         <h3 className="font-display font-bold">Bowl finish positions</h3>
-        <p className="text-xs text-muted-foreground">Each dot is a bowl. Centre = jack.</p>
-        <div className="mt-3 h-72">
+        <p className="text-xs text-muted-foreground">Each dot is a bowl. Centre = jack. {filtered.length} bowl{filtered.length === 1 ? "" : "s"} shown.</p>
+        <div
+          key={`${lengthF}-${handF}-${timeF}`}
+          className="mt-3 h-72 animate-in fade-in duration-300"
+        >
           <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+            <ScatterChart margin={{ top: 10, right: 10, bottom: 24, left: 24 }}>
               <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
-              <XAxis type="number" dataKey="x" domain={[-2.4, 2.4]} tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }} label={{ value: "← Left / Right →", position: "insideBottom", offset: -5, fontSize: 10, fill: "var(--color-muted-foreground)" }} />
-              <YAxis type="number" dataKey="y" domain={[-2.4, 2.4]} tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }} label={{ value: "Short / Long", angle: -90, position: "insideLeft", fontSize: 10, fill: "var(--color-muted-foreground)" }} />
+              <XAxis
+                type="number"
+                dataKey="x"
+                domain={[-2.4, 2.4]}
+                tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
+                label={{ value: "← Left        Right →", position: "insideBottom", offset: -8, fontSize: 11, fill: "var(--color-muted-foreground)" }}
+              />
+              <YAxis
+                type="number"
+                dataKey="y"
+                domain={[-2.4, 2.4]}
+                tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
+                label={{ value: "↓ Short        ↑ Long", angle: -90, position: "insideLeft", offset: 10, fontSize: 11, fill: "var(--color-muted-foreground)" }}
+              />
               <ZAxis range={[40, 40]} />
-              <ReferenceArea x1={-0.5} x2={0.5} y1={-0.5} y2={0.5} stroke="var(--color-primary)" strokeOpacity={0.3} fill="var(--color-primary)" fillOpacity={0.05} />
+              <ReferenceArea
+                x1={-1} x2={1} y1={-1} y2={1}
+                stroke="var(--color-primary)"
+                strokeOpacity={0.5}
+                fill="var(--color-primary)"
+                fillOpacity={0.1}
+                label={{
+                  value: "Competitive Zone (Within 1 mat)",
+                  position: "insideTop",
+                  fontSize: 10,
+                  fill: "var(--color-primary)",
+                }}
+              />
               <Tooltip
                 contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12, fontSize: 12 }}
                 formatter={(v: number) => v.toFixed(2)}
               />
-              <Scatter data={filtered} fill="var(--color-primary)" fillOpacity={0.6} />
+              <Scatter data={filtered} fill="var(--color-primary)" fillOpacity={0.6} isAnimationActive={true} animationDuration={400} />
             </ScatterChart>
           </ResponsiveContainer>
         </div>
       </div>
+
 
       <div className="grid grid-cols-2 gap-3">
         <Stat label="Left miss" value={`${pattern.leftPct}%`} />
@@ -458,7 +698,7 @@ function VisualScatterSection({ results, drills }: { results: Result[]; drills: 
           <MiniStat label="On line" value={`${overallAcc.onlinePct}%`} />
           <MiniStat label="Wide" value={`${overallAcc.widePct}%`} />
           <MiniStat label="Short" value={`${overallAcc.shortPct}%`} />
-          <MiniStat label="Within a Mat" value={`${overallAcc.jackHighPct}%`} />
+          <MiniStat label="Within 1 mat" value={`${overallAcc.jackHighPct}%`} />
           <MiniStat label="Long" value={`${overallAcc.pastJackPct}%`} />
         </div>
       </div>
@@ -518,7 +758,7 @@ function HandCard({ title, pattern }: { title: string; pattern: import("@/lib/bo
           <span className="text-muted-foreground">On line</span><span className="text-right font-bold">{pattern.onlinePct}%</span>
           <span className="text-muted-foreground">Wide</span><span className="text-right font-bold">{pattern.widePct}%</span>
           <span className="text-muted-foreground">Short</span><span className="text-right font-bold">{pattern.shortPct}%</span>
-          <span className="text-muted-foreground">Within a Mat</span><span className="text-right font-bold">{pattern.jackHighPct}%</span>
+          <span className="text-muted-foreground">Within 1 mat</span><span className="text-right font-bold">{pattern.jackHighPct}%</span>
           <span className="text-muted-foreground">Long</span><span className="text-right font-bold">{pattern.pastJackPct}%</span>
         </div>
       )}
@@ -549,7 +789,7 @@ function LengthCard({
         <MiniStat label="BH wide" value={`${data.backhand.widePct}%`} />
         <MiniStat label="BH on line" value={`${data.backhand.onlinePct}%`} />
         <MiniStat label="Short" value={`${data.overall.shortPct}%`} />
-        <MiniStat label="Within a Mat" value={`${data.overall.jackHighPct}%`} />
+        <MiniStat label="Within 1 mat" value={`${data.overall.jackHighPct}%`} />
         <MiniStat label="Long" value={`${data.overall.pastJackPct}%`} />
       </div>
     </div>

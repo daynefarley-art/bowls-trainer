@@ -1,3 +1,4 @@
+import type { MeasureVersion } from "@/lib/measurement";
 // Challenge system types & helpers.
 // Challenges are completely separate from drills and do NOT affect the BSI.
 
@@ -115,12 +116,14 @@ export type SlimedLine = "narrow" | "on" | "wide";
 export type SlimedWeight = "short" | "jack-high" | "past";
 
 export type SlimedBowl = {
-  bowl_number: number;        // 1..32
-  circuit: number;            // 1..4
+  bowl_number: number;        // 1..16 (v3) — legacy attempts used 1..32
+  circuit: number;            // 1..4 — one end per circuit in v3
   hand: SlimedHand;
   target: SlimedTarget;
-  score: 0 | 1 | 2;
-  // Visual-only fields
+  // Scoring (v3, since 2026-07-19): 5 = ½ mat, 3 = 1 mat, 1 = 2 mats, 0 = outside. Max 80.
+  // v2 (2026-07-18) used the same 5/3/1/0 scale but 32 bowls (max 160).
+  // v1 (pre-2026-07-18) stored 0 | 1 | 2 with max 64.
+  score: 0 | 1 | 2 | 3 | 5;
   x?: number;
   y?: number;
   line?: SlimedLine;
@@ -128,13 +131,23 @@ export type SlimedBowl = {
 };
 
 export type SlimedBreakdown = {
+  /** Measurement version (see src/lib/measurement.ts). Absent ⇒ legacy V1. */
+  measure_v?: MeasureVersion;
   type: "slimed";
   mode: SlimedScoringMode;
   bowls: SlimedBowl[];
   total_score: number;
   max_score: number;
-  circuit_scores: number[]; // length 4
+  circuit_scores: number[]; // length 4 (one per end in v3)
 };
+
+// Current SLiMeD scoring: 4 ends × 4 bowls, max 80. Historical attempts kept as-is.
+export const SLIMED_MAX_SCORE_V2 = 80;
+export const SLIMED_CURRENT_MAX_SCORE = 80;
+export function isSlimedV2Breakdown(b: unknown): boolean {
+  const bd = b as { type?: string; max_score?: number } | null | undefined;
+  return !!bd && bd.type === "slimed" && bd.max_score === SLIMED_CURRENT_MAX_SCORE;
+}
 
 export const SLIMED_TARGETS: SlimedTarget[] = ["S", "L", "M", "D"];
 export const SLIMED_TARGET_LABEL: Record<SlimedTarget, string> = {
@@ -234,7 +247,7 @@ export const CHALLENGE_BADGE_THRESHOLDS: Record<string, Record<ChallengeBadgeTie
   "jack-in-ditch":   { bronze: 10, silver: 15, gold: 20, platinum: 25 },
   "drive-then-draw": { bronze: 20, silver: 30, gold: 40, platinum: 50 },
   "traffic-jam":     { bronze: 15, silver: 25, gold: 35, platinum: 45 },
-  "slimed":          { bronze: 20, silver: 35, gold: 50, platinum: 65 },
+  "slimed":          { bronze: 25, silver: 40, gold: 55, platinum: 70 },
   "switch-32":       { bronze: 60, silver: 90, gold: 120, platinum: 140 },
 };
 
@@ -276,6 +289,8 @@ export type Switch32End = {
 };
 
 export type Switch32Breakdown = {
+  /** Measurement version (see src/lib/measurement.ts). Absent ⇒ legacy V1. */
+  measure_v?: MeasureVersion;
   type: "switch-32";
   mode: Switch32ScoringMode;
   ends: Switch32End[];

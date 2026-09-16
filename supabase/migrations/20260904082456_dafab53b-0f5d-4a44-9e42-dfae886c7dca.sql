@@ -1,0 +1,1 @@
+UPDATE public.club_branding SET primary_colour = '#074DA2', secondary_colour = '#76D1F0', accent_colour = '#FFD403' WHERE club_id = '11111111-1111-1111-1111-111111111111';

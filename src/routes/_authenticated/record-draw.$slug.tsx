@@ -1,24 +1,41 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import type { MeasureVersion } from "@/lib/measurement";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  completeTrainerBlock,
+  getTrainerBlock,
+  prescriptionSummary,
+  recorderPrescription,
+  trainerPrescription,
+  TRAINER_BLOCK_QK,
+  TRAINER_CURRENT_QK,
+  TRAINER_SESSION_QK,
+} from "@/lib/trainer";
 import { PageHeader } from "@/components/bowls/PageHeader";
+import { ExitPracticeButton } from "@/components/practice/ExitPracticeButton";
 import { EndSessionDialog } from "@/components/bowls/EndSessionDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { percentageOf, bsiFromBreakdown, type Drill, type BowlDetail, isDrawDrillSlug, drawLengthForSlug } from "@/lib/bowls";
+import { percentageOf, bsiFromBreakdown, type Drill, type BowlDetail, isDrawDrillSlug, drawLengthForSlug, LEAD_DRILL_SLUG, LEAD_DRILL_BOWL_TARGETS } from "@/lib/bowls";
 import { VisualTarget, type VisualTap } from "@/components/bowls/VisualTarget";
 import { EndTargetRecorder } from "@/components/bowls/EndTargetRecorder";
+import { isHeadScanEnabled } from "@/lib/head-scan";
 
 import { SessionConditionsField, type GreenType } from "@/components/bowls/SessionConditionsField";
 import { StopCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveSession } from "@/hooks/use-active-session";
-import { ACTIVE_SESSION_QK, SESSIONS_QK, attachActivity, getActiveSession } from "@/lib/sessions";
+import { ACTIVE_SESSION_QK, SESSIONS_QK, attachActivity, ensureActivePractice } from "@/lib/sessions";
 import { isDemoMode } from "@/lib/demo-mode";
+import { usePracticeTracker } from "@/hooks/use-practice-tracker";
+import { PauseButton } from "@/components/practice/PauseButton";
+import { LeavePracticeGuard } from "@/components/practice/LeavePracticeGuard";
+import { useActivityAutosave, useBackgroundPauseGuard } from "@/hooks/use-practice-activity";
 
 const SESSION_KEY = "bowls.activeSession.v1";
 type ActiveSession = Record<string, string>;
@@ -53,7 +70,12 @@ function writeMode(m: ScoringMode) {
   localStorage.setItem(MODE_KEY, m);
 }
 
-const searchSchema = z.object({ start: z.string().optional() });
+const searchSchema = z.object({
+  start: z.coerce.string().optional(),
+  resume: z.coerce.string().optional(),
+  trainer: z.coerce.string().optional(),
+  block: z.coerce.string().optional(),
+});
 
 export const Route = createFileRoute("/_authenticated/record-draw/$slug")({
   validateSearch: searchSchema,
@@ -62,11 +84,19 @@ export const Route = createFileRoute("/_authenticated/record-draw/$slug")({
 
 const ENDS = 4;
 const BOWLS_PER_END = 4;
-const HANDS: BowlDetail["hand"][] = ["forehand", "forehand", "backhand", "backhand"];
+const DEFAULT_HANDS: BowlDetail["hand"][] = ["forehand", "forehand", "backhand", "backhand"];
+
+function handsFor(prescribed: "forehand" | "backhand" | "alternate" | null | undefined): BowlDetail["hand"][] {
+  if (prescribed === "forehand") return ["forehand", "forehand", "forehand", "forehand"];
+  if (prescribed === "backhand") return ["backhand", "backhand", "backhand", "backhand"];
+  if (prescribed === "alternate") return ["forehand", "backhand", "forehand", "backhand"];
+  return DEFAULT_HANDS;
+}
 
 function RecordDrawPage() {
   const { user } = Route.useRouteContext();
   const { slug } = Route.useParams();
+  const { resume, trainer: trainerId, block: trainerBlockId } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -79,9 +109,27 @@ function RecordDrawPage() {
     },
   });
 
+  // Trainer block is the authoritative source of the prescribed setup — it is
+  // fetched by id, not decoded from the URL, so it survives an app restart.
+  const { data: trainerBlock } = useQuery({
+    queryKey: TRAINER_BLOCK_QK(trainerBlockId ?? ""),
+    enabled: !!trainerBlockId,
+    queryFn: () => getTrainerBlock(trainerBlockId!),
+  });
+  const prescription = useMemo(() => trainerPrescription(trainerBlock), [trainerBlock]);
+  const HANDS = useMemo(() => handsFor(prescription?.hand ?? null), [prescription]);
+  const prescribedBits = useMemo(() => prescriptionSummary(prescription), [prescription]);
+  // Recorder-actionable prescription. The seed is the block id, so a "random"
+  // progression reproduces the same order after a resume or app restart.
+  const rx = useMemo(
+    () => recorderPrescription(prescription, slug, trainerBlockId ?? slug, BOWLS_PER_END),
+    [prescription, slug, trainerBlockId],
+  );
+
   useEffect(() => {
     if (!isLoading && (!drill || !isDrawDrillSlug(slug))) navigate({ to: "/drills" });
   }, [isLoading, drill, slug, navigate]);
+
 
   // bowls[end][bowl] = scoring category key, or null
   const [bowls, setBowls] = useState<(string | null)[][]>(() =>
@@ -101,7 +149,16 @@ function RecordDrawPage() {
   const [location, setLocation] = useState("");
   const [saving, setSaving] = useState(false);
   const [startedAt, setStartedAt] = useState<string | null>(null);
+  const [savedOk, setSavedOk] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
+  const currentBowlsDelivered = useMemo(
+    () => bowls.reduce((sum, row) => sum + row.filter(Boolean).length, 0),
+    [bowls],
+  );
+  const practiceState = useMemo(
+    () => ({ bowls, taps, mode, notes, conditionsList, greenType, greenSpeed, location }),
+    [bowls, taps, mode, notes, conditionsList, greenType, greenSpeed, location],
+  );
   // Continuous visual scoring: explicit focus on a single bowl.
   // Auto-advances after each placement; can be moved backward via Back/Undo.
   
@@ -112,6 +169,47 @@ function RecordDrawPage() {
     if (!drill) return;
     setStartedAt(ensureStart(drill.id));
   }, [drill]);
+
+  // Practice activity tracking: create/resume as soon as the drill loads.
+  const trackerEnabled = !!drill;
+  const { activity: practiceActivity, saveState: savePracticeState, markCompleted: markPracticeCompleted, measureVersion } =
+    usePracticeTracker({
+      userId: user?.id,
+      kind: "drill",
+      slug: drill?.slug,
+      drillId: drill?.id ?? null,
+      title: drill?.name ?? null,
+      initialState: practiceState,
+      bowlsDelivered: currentBowlsDelivered,
+      enabled: trackerEnabled,
+      resumeId: resume ?? null,
+    });
+
+  // Hydrate from resumed activity's saved state (once).
+  const [practiceHydrated, setPracticeHydrated] = useState(false);
+  useEffect(() => {
+    if (!practiceActivity || practiceHydrated) return;
+    const s = (practiceActivity.state ?? {}) as Record<string, any>;
+    if (Array.isArray(s.bowls)) setBowls(s.bowls);
+    if (Array.isArray(s.taps)) setTaps(s.taps);
+    if (s.mode === "simple" || s.mode === "visual") changeMode(s.mode);
+    if (typeof s.notes === "string") setNotes(s.notes);
+    if (Array.isArray(s.conditionsList)) setConditionsList(s.conditionsList);
+    if (typeof s.greenType === "string") setGreenType(s.greenType as GreenType | "");
+    if (typeof s.greenSpeed === "string") setGreenSpeed(s.greenSpeed);
+    if (typeof s.location === "string") setLocation(s.location);
+    setPracticeHydrated(true);
+  }, [practiceActivity, practiceHydrated]);
+
+  useActivityAutosave(practiceActivity?.id, practiceState, {
+    debounceMs: 250,
+    bowlsDelivered: currentBowlsDelivered,
+  });
+  useBackgroundPauseGuard(practiceActivity);
+
+  const flushPracticeState = async () => {
+    await savePracticeState(practiceState, currentBowlsDelivered);
+  };
 
   const cats = drill?.scoring_config.categories ?? [];
   const pointsByKey = useMemo(() => Object.fromEntries(cats.map((c) => [c.key, c.points])), [cats]);
@@ -131,6 +229,7 @@ function RecordDrawPage() {
           detail.x = Math.round(tap.x * 1000) / 1000;
           detail.y = Math.round(tap.y * 1000) / 1000;
           detail.distance = Math.round(tap.distance * 1000) / 1000;
+          detail.entry_method = tap.source ?? "visual_target";
           if (drawLength) detail.drill_length = drawLength;
           arr.push(detail);
         } else {
@@ -143,7 +242,7 @@ function RecordDrawPage() {
       }
     }
     return arr;
-  }, [bowls, taps, pointsByKey, drawLength]);
+  }, [bowls, taps, pointsByKey, drawLength, HANDS]);
 
   const score = flat.reduce((s, b) => s + b.points, 0);
   const filled = flat.length;
@@ -153,16 +252,51 @@ function RecordDrawPage() {
   const liveBsi = drill ? bsiFromBreakdown(drill.slug, { bowls: flat }, pct) : 0;
 
   function setBowlSimple(end: number, bowl: number, key: string) {
-    setBowls((prev) => { const next = prev.map((r) => r.slice()); next[end][bowl] = key; return next; });
-    setTaps((prev) => { const next = prev.map((r) => r.slice()); next[end][bowl] = null; return next; });
+    const nextBowls = bowls.map((r) => r.slice());
+    const nextTaps = taps.map((r) => r.slice());
+    nextBowls[end][bowl] = key;
+    nextTaps[end][bowl] = null;
+    setBowls(nextBowls);
+    setTaps(nextTaps);
+    const nextDelivered = nextBowls.reduce((sum, row) => sum + row.filter(Boolean).length, 0);
+    savePracticeState({ ...practiceState, bowls: nextBowls, taps: nextTaps }, nextDelivered).catch(() => {});
+  }
+  /**
+   * Applies one or more bowl positions for an end in a SINGLE state update.
+   * Head Scan returns every bowl of the end at once, so per-bowl updates that
+   * read the current `bowls` closure would clobber each other and only the
+   * last bowl would survive.
+   */
+  function setBowlsVisual(end: number, entries: { bowl: number; tap: VisualTap }[]) {
+    if (entries.length === 0) return;
+    const nextBowls = bowls.map((r) => r.slice());
+    const nextTaps = taps.map((r) => r.slice());
+    for (const { bowl, tap } of entries) {
+      nextBowls[end][bowl] = tap.key;
+      nextTaps[end][bowl] = tap;
+    }
+    setBowls(nextBowls);
+    setTaps(nextTaps);
+    const nextDelivered = nextBowls.reduce((sum, row) => sum + row.filter(Boolean).length, 0);
+    savePracticeState({ ...practiceState, bowls: nextBowls, taps: nextTaps }, nextDelivered).catch(() => {});
   }
   function setBowlVisual(end: number, bowl: number, tap: VisualTap) {
-    setBowls((prev) => { const next = prev.map((r) => r.slice()); next[end][bowl] = tap.key; return next; });
-    setTaps((prev) => { const next = prev.map((r) => r.slice()); next[end][bowl] = tap; return next; });
+    setBowlsVisual(end, [{ bowl, tap }]);
   }
   function clearBowl(end: number, bowl: number) {
-    setBowls((prev) => { const next = prev.map((r) => r.slice()); next[end][bowl] = null; return next; });
-    setTaps((prev) => { const next = prev.map((r) => r.slice()); next[end][bowl] = null; return next; });
+    clearBowlsAt(end, [bowl]);
+  }
+  function clearBowlsAt(end: number, bowlIdxs: number[]) {
+    const nextBowls = bowls.map((r) => r.slice());
+    const nextTaps = taps.map((r) => r.slice());
+    for (const b of bowlIdxs) {
+      nextBowls[end][b] = null;
+      nextTaps[end][b] = null;
+    }
+    setBowls(nextBowls);
+    setTaps(nextTaps);
+    const nextDelivered = nextBowls.reduce((sum, row) => sum + row.filter(Boolean).length, 0);
+    savePracticeState({ ...practiceState, bowls: nextBowls, taps: nextTaps }, nextDelivered).catch(() => {});
   }
 
 
@@ -179,26 +313,53 @@ function RecordDrawPage() {
     for (const b of flat) counts[b.key] = (counts[b.key] ?? 0) + 1;
 
     const breakdown = {
+      // Measurement version pinned when this practice began. Absent ⇒ legacy V1.
+      measure_v: measureVersion,
       ...counts,
       ends: ENDS,
       bowls_per_end: BOWLS_PER_END,
       bowls: flat,
+      // Prescribed conditions this result was recorded under (absent for
+      // ordinary practice). Recorded for context only — scoring is unchanged.
+      ...(prescription
+        ? {
+            prescription: {
+              hand: prescription.hand,
+              target_mode: prescription.targetMode,
+              weight_intent: prescription.weightIntent,
+              progression: prescription.progressionMode,
+              band_scale: rx.bandScale,
+            },
+          }
+        : {}),
     };
 
     const completedAt = new Date();
     const startIso = startedAt ?? ensureStart(drill.id);
-    const durationMinutes = Math.max(
-      1,
-      Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000),
-    );
+    const durationMinutes = Math.min(60, Math.max(1, Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000)));
 
-    const activeSession = await getActiveSession(user.id);
+    const activeSession = await ensureActivePractice(user.id);
 
     if (isDemoMode()) {
       setSaving(false);
+      setSavedOk(true);
       clearStart(drill.id);
+      await markPracticeCompleted();
       if (activeSession) await attachActivity(activeSession.id, "drill", drill.category);
       toast.success(`Demo result — not saved (${score}/${drill.max_score})`);
+    if (trainerId && trainerBlockId) {
+      await completeTrainerBlock({
+        sessionId: trainerId,
+        blockId: trainerBlockId,
+        resultId: null,
+        score,
+        percentage: pct,
+      });
+      qc.invalidateQueries({ queryKey: TRAINER_SESSION_QK(trainerId) });
+      qc.invalidateQueries({ queryKey: TRAINER_CURRENT_QK(user.id) });
+      navigate({ to: "/trainer/$id", params: { id: trainerId } });
+      return;
+    }
       if (repeat) navigate({ to: "/drill/$slug", params: { slug: drill.slug } });
       else if (activeSession) navigate({ to: "/sessions/$id", params: { id: activeSession.id } });
       else navigate({ to: "/dashboard" });
@@ -237,7 +398,9 @@ function RecordDrawPage() {
     setSaving(false);
     if (error || !data) return toast.error(error?.message ?? "Save failed");
 
+    setSavedOk(true);
     clearStart(drill.id);
+    await markPracticeCompleted({ resultId: data.id });
     if (activeSession) {
       await attachActivity(activeSession.id, "drill", drill.category);
       qc.invalidateQueries({ queryKey: ACTIVE_SESSION_QK(user.id) });
@@ -247,6 +410,19 @@ function RecordDrawPage() {
     }
     qc.invalidateQueries({ queryKey: ["results", user.id] });
     toast.success(activeSession ? "Added to session" : "Result saved");
+    if (trainerId && trainerBlockId) {
+      await completeTrainerBlock({
+        sessionId: trainerId,
+        blockId: trainerBlockId,
+        resultId: data.id,
+        score,
+        percentage: pct,
+      });
+      qc.invalidateQueries({ queryKey: TRAINER_SESSION_QK(trainerId) });
+      qc.invalidateQueries({ queryKey: TRAINER_CURRENT_QK(user.id) });
+      navigate({ to: "/trainer/$id", params: { id: trainerId } });
+      return;
+    }
     if (repeat) {
       navigate({ to: "/drill/$slug", params: { slug: drill.slug } });
     } else if (activeSession) {
@@ -273,8 +449,43 @@ function RecordDrawPage() {
 
   return (
     <>
-      <PageHeader title={drill.name} subtitle={mode === "visual" ? `Score each end · ${ENDS} ends` : "Tap the score zone for each bowl"} />
+      <PageHeader
+        title={drill.name}
+        subtitle={mode === "visual" ? `Score each end · ${ENDS} ends` : "Tap the score zone for each bowl"}
+        leading={
+          <ExitPracticeButton
+            activity={practiceActivity}
+            hasCurrentStats={currentBowlsDelivered > 0}
+            onBeforePause={flushPracticeState}
+            onBeforeDiscard={flushPracticeState}
+            onSaved={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+            onDiscarded={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+          />
+        }
+      />
       <main className="mx-auto -mt-4 max-w-md space-y-4 px-5 pb-8">
+        {trainerBlock && (
+          <section className="rounded-2xl border border-primary/40 bg-primary/5 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-primary">Bowls Trainer block</p>
+            <p className="font-display text-base font-bold leading-tight">{trainerBlock.title}</p>
+            {rx.chips.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {rx.chips.map((c) => (
+                  <span key={c} className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+                    {c}
+                  </span>
+                ))}
+              </div>
+            )}
+            {prescribedBits.length === 0 && rx.chips.length === 0 && prescription?.length && (
+              <p className="mt-1 text-xs text-muted-foreground">{prescription.length} length</p>
+            )}
+            {prescription?.variantDescription && (
+              <p className="mt-1 text-xs text-muted-foreground">{prescription.variantDescription}</p>
+            )}
+          </section>
+        )}
+
         {mode === "simple" && (
           <section className="rounded-3xl bg-card p-5 bt-shadow-elevated">
             <div className="flex items-center justify-around text-center">
@@ -326,10 +537,35 @@ function RecordDrawPage() {
             taps={taps}
             endMaxScore={endMaxScore}
             onPlace={setBowlVisual}
+            onPlaceMany={setBowlsVisual}
             onClear={clearBowl}
+            onClearEnd={(end) => clearBowlsAt(end, Array.from({ length: BOWLS_PER_END }, (_, i) => i))}
             onFinish={() => handleSave(false)}
             onExit={() => changeMode("simple")}
             saving={saving}
+            headScanEnabled={isHeadScanEnabled(slug)}
+            bandScale={rx.bandScale}
+            prescriptionChips={rx.chips}
+            bowlStepLabels={
+              slug === LEAD_DRILL_SLUG
+                ? [...LEAD_DRILL_BOWL_TARGETS]
+                : rx.bowlStepLabels
+            }
+            bowlTargetLabels={
+              slug === LEAD_DRILL_SLUG ? [...LEAD_DRILL_BOWL_TARGETS] : undefined
+            }
+            pauseSlot={practiceActivity ? (
+              <PauseButton
+                activity={practiceActivity}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-secondary text-sm font-bold active:scale-[0.99] transition"
+                label="Pause / Save for later"
+                hasCurrentStats={currentBowlsDelivered > 0}
+                onBeforePause={flushPracticeState}
+                onBeforeDiscard={flushPracticeState}
+                onSaved={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+                onDiscarded={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+              />
+            ) : null}
           />
 
         ) : (
@@ -470,6 +706,19 @@ function RecordDrawPage() {
           </>
         )}
 
+        {practiceActivity && mode !== "visual" && (
+          <PauseButton
+            activity={practiceActivity}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-secondary text-sm font-bold active:scale-[0.99] transition"
+            label="Pause / Save for later"
+            hasCurrentStats={currentBowlsDelivered > 0}
+            onBeforePause={flushPracticeState}
+            onBeforeDiscard={flushPracticeState}
+            onSaved={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+            onDiscarded={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+          />
+        )}
+
         {activeSession && (
           <button
             type="button"
@@ -484,6 +733,18 @@ function RecordDrawPage() {
           Cancel
         </Link>
       </main>
+
+      <LeavePracticeGuard
+        when={!savedOk && !!practiceActivity && practiceActivity.status !== "completed"}
+        activity={practiceActivity}
+        hasCurrentStats={currentBowlsDelivered > 0}
+        onBeforeSave={flushPracticeState}
+        onBeforeDiscard={flushPracticeState}
+        onLeaving={() => {
+          if (drill) clearStart(drill.id);
+          setSavedOk(true);
+        }}
+      />
 
 
       {activeSession && (

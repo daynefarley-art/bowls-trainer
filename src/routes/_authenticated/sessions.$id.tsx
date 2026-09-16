@@ -50,7 +50,7 @@ function SessionDetailPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("results")
-        .select("id, drill_name, category, score, percentage, played_at, duration_minutes, conditions_list, green_type")
+        .select("id, drill_name, category, score, percentage, bsi, played_at, duration_minutes, conditions_list, green_type")
         .eq("session_id", id)
         .eq("user_id", user.id)
         .order("played_at", { ascending: true });
@@ -83,7 +83,7 @@ function SessionDetailPage() {
   if (isLoading) {
     return (
       <>
-        <PageHeader title="Training session" />
+        <PageHeader title="Practice" />
         <main className="mx-auto -mt-4 max-w-md px-5 py-10 text-center text-sm text-muted-foreground">Loading…</main>
       </>
     );
@@ -91,7 +91,7 @@ function SessionDetailPage() {
   if (!session) {
     return (
       <>
-        <PageHeader title="Training session" />
+        <PageHeader title="Practice" />
         <main className="mx-auto -mt-4 max-w-md px-5 py-10 text-center text-sm text-muted-foreground">
           Session not found.
           <div className="mt-4">
@@ -111,7 +111,7 @@ function SessionDetailPage() {
   return (
     <>
       <PageHeader
-        title={isActive ? "Active session" : "Session summary"}
+        title={isActive ? "Active practice" : "Practice summary"}
         subtitle={startedAt.toLocaleDateString(undefined, {
           weekday: "long",
           day: "numeric",
@@ -215,7 +215,7 @@ function SessionDetailPage() {
                 <div className="text-right">
                   <p className="font-display text-lg font-extrabold text-primary">{r.score}</p>
                   <p className="text-[10px] font-bold uppercase text-muted-foreground">
-                    BSI {r.percentage != null ? Number(r.percentage).toFixed(0) : "—"}
+                    BSI {r.bsi != null ? Number(r.bsi).toFixed(0) : r.percentage != null ? Number(r.percentage).toFixed(0) : "—"}
                   </p>
                 </div>
                 {!isActive && !id.startsWith("demo-") && (

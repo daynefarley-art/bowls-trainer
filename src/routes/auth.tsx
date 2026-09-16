@@ -8,6 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { BTLogo } from "@/components/bowls/BTLogo";
 import { z } from "zod";
+import { validateClubCode, joinClubWithCode, clubCodeErrorMessage, type ClubCodeCheck } from "@/lib/club-code";
+import { PASSWORD_RESET_URL } from "@/lib/canonical-url";
 
 type InviteInfo = {
   valid: boolean;
@@ -15,6 +17,8 @@ type InviteInfo = {
   role: string | null;
   reason: string | null;
 };
+
+// Canonical production recovery destination (single source of truth).
 
 export const Route = createFileRoute("/auth")({
   validateSearch: z.object({ invite: z.string().optional() }),
@@ -34,7 +38,12 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [club, setClub] = useState("");
-  const [betaMode, setBetaMode] = useState<boolean>(true);
+  const [clubCode, setClubCode] = useState("");
+  const [clubCodeCheck, setClubCodeCheck] = useState<ClubCodeCheck | null>(null);
+  const [clubCodeChecking, setClubCodeChecking] = useState(false);
+  const [checkEmail, setCheckEmail] = useState(false);
+
+
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -45,26 +54,18 @@ function AuthPage() {
   async function handleForgot(e: React.FormEvent) {
     e.preventDefault();
     setForgotLoading(true);
-    await supabase.auth.resetPasswordForEmail(forgotEmail, {
-      redirectTo: `${window.location.origin}/reset-password`,
+    const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim().toLowerCase(), {
+      redirectTo: PASSWORD_RESET_URL,
     });
     setForgotLoading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     setForgotSent(true);
   }
 
-  // Load beta-mode setting
-  useEffect(() => {
-    supabase
-      .from("app_settings")
-      .select("value")
-      .eq("key", "private_beta_mode")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data && typeof data.value === "boolean") setBetaMode(data.value);
-        else if (data && data.value === true) setBetaMode(true);
-        else if (data && data.value === false) setBetaMode(false);
-      });
-  }, []);
+
 
   // Validate invitation if present
   useEffect(() => {
@@ -94,6 +95,23 @@ function AuthPage() {
       });
   }, [invite]);
 
+  // Validate club code as the user types (debounced)
+  useEffect(() => {
+    const code = clubCode.trim();
+    if (!code) {
+      setClubCodeCheck(null);
+      setClubCodeChecking(false);
+      return;
+    }
+    setClubCodeChecking(true);
+    const t = setTimeout(async () => {
+      const res = await validateClubCode(code);
+      setClubCodeCheck(res);
+      setClubCodeChecking(false);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [clubCode]);
+
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -107,20 +125,24 @@ function AuthPage() {
   async function handleSignUp(e: React.FormEvent) {
     e.preventDefault();
 
-    // Block sign-up when beta mode is on and there's no valid invitation
-    if (betaMode) {
-      if (!invite || !inviteInfo?.valid) {
-        toast.error("An invitation is required to create an account.");
-        return;
-      }
-      if (inviteInfo.email && email.toLowerCase() !== inviteInfo.email.toLowerCase()) {
-        toast.error("This invitation is for a different email address.");
-        return;
-      }
+    // Public player sign-up: no invitation required.
+    // A club code is optional and is not a credential — it only says
+    // "I want to join this club".
+    if (clubCode.trim() && !clubCodeCheck?.valid) {
+      toast.error("Please correct or remove the club code before continuing.");
+      return;
+    }
+
+    // An invitation is optional, but if one is present it must match the email
+    // so the invited role/relationship attaches to the right account.
+    if (invite && inviteInfo?.valid && inviteInfo.email &&
+        email.trim().toLowerCase() !== inviteInfo.email.toLowerCase()) {
+      toast.error("This invitation is for a different email address.");
+      return;
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -133,12 +155,30 @@ function AuthPage() {
       return toast.error(error.message);
     }
 
+    // If the project requires email confirmation, there is no session yet —
+    // relationship work needs one, so ask the user to confirm first.
+    if (!signUpData.session) {
+      setLoading(false);
+      setCheckEmail(true);
+      return;
+    }
+
     // Consume the invitation (assigns invited role)
     if (invite && inviteInfo?.valid) {
       const { error: consumeErr } = await supabase.rpc("consume_invitation", { _code: invite });
       if (consumeErr) {
         setLoading(false);
         return toast.error(`Invitation could not be redeemed: ${consumeErr.message}`);
+      }
+    }
+
+    // Canonical club join via code (same pipeline as invitations)
+    if (clubCode.trim() && clubCodeCheck?.valid) {
+      try {
+        const joined = await joinClubWithCode(clubCode.trim());
+        toast.success(`Joined ${joined.club_name}`);
+      } catch {
+        toast.error("Account created, but the club code could not be applied. You can join from your profile.");
       }
     }
 
@@ -155,14 +195,14 @@ function AuthPage() {
     navigate({ to: "/dashboard" });
   }
 
-  const showSignupBlocked = betaMode && (!invite || !inviteInfo?.valid);
+  
   const inviteErrorMsg = inviteInfo && !inviteInfo.valid
     ? (() => {
         const reason = inviteInfo.reason ?? "";
         if (reason.startsWith("rpc_error:")) return `Could not validate invitation: ${reason.slice("rpc_error:".length)}`;
         switch (reason) {
           case "expired": return "Invitation has expired.";
-          case "used": return "Invitation has already been used.";
+          case "used": return "This email already has a Bowls Trainer account — just sign in below. You don't need to register again.";
           case "revoked": return "Invitation has been revoked.";
           case "not_found": return "Invitation token not found.";
           default: return `Invitation link is not valid (${reason || "unknown"}).`;
@@ -183,14 +223,6 @@ function AuthPage() {
         </div>
       </div>
       <div className="mx-auto -mt-6 max-w-md px-6 space-y-4">
-        {betaMode && (
-          <div className="rounded-2xl bg-card p-4 bt-shadow-elevated">
-            <p className="text-xs font-bold uppercase tracking-wider text-primary">Private Beta</p>
-            <p className="mt-1 text-sm text-foreground">
-              Access is currently by invitation only. If you would like access, please contact the Bowls Trainer team.
-            </p>
-          </div>
-        )}
 
         {invite && inviteLoading && (
           <div className="rounded-2xl bg-card p-4 text-sm bt-shadow-elevated">Validating invitation…</div>
@@ -206,17 +238,27 @@ function AuthPage() {
         )}
 
         {invite && inviteInfo && !inviteInfo.valid && (
-          <div className="rounded-2xl bg-destructive/10 p-4 text-sm bt-shadow-elevated">
-            <p className="font-bold text-destructive">{inviteErrorMsg}</p>
-            <p className="text-muted-foreground mt-1">Please contact the administrator for a new invitation.</p>
+          <div
+            className={`rounded-2xl p-4 text-sm bt-shadow-elevated ${
+              inviteInfo.reason === "used" ? "bg-card" : "bg-destructive/10"
+            }`}
+          >
+            <p className={`font-bold ${inviteInfo.reason === "used" ? "text-primary" : "text-destructive"}`}>
+              {inviteErrorMsg}
+            </p>
+            <p className="text-muted-foreground mt-1">
+              {inviteInfo.reason === "used"
+                ? "TestFlight and Google Play are only how the app is delivered — your Bowls Trainer account is the same on every platform."
+                : "Please contact the administrator for a new invitation."}
+            </p>
           </div>
         )}
 
         <div className="rounded-2xl bg-card p-6 bt-shadow-elevated">
-          <Tabs defaultValue={invite ? "signup" : "signin"}>
+          <Tabs defaultValue={invite && inviteInfo?.valid !== false ? "signup" : "signin"}>
             <TabsList className="grid w-full grid-cols-2 h-12 rounded-xl">
               <TabsTrigger value="signin" className="h-10 rounded-lg text-base">Sign in</TabsTrigger>
-              <TabsTrigger value="signup" className="h-10 rounded-lg text-base">Sign up</TabsTrigger>
+              <TabsTrigger value="signup" className="h-10 rounded-lg text-base">Create account</TabsTrigger>
             </TabsList>
             <TabsContent value="signin">
               {forgotOpen ? (
@@ -271,16 +313,17 @@ function AuthPage() {
               )}
             </TabsContent>
             <TabsContent value="signup">
-              {showSignupBlocked ? (
+              {checkEmail ? (
                 <div className="space-y-4 pt-4">
                   <div className="rounded-xl bg-muted/40 p-4 text-sm">
-                    <p className="font-bold">Bowls Trainer is currently in private beta.</p>
+                    <p className="font-bold">Check your email</p>
                     <p className="mt-2 text-muted-foreground">
-                      Please contact the administrator if you would like access.
+                      We've sent a confirmation link to <span className="font-semibold">{email}</span>.
+                      Confirm it, then sign in to finish setting up.
                     </p>
                   </div>
                   <p className="text-xs text-muted-foreground text-center">
-                    Already have an account? <Link to="/auth" className="font-semibold text-primary">Sign in</Link>
+                    Already confirmed? <Link to="/auth" className="font-semibold text-primary">Sign in</Link>
                   </p>
                 </div>
               ) : (
@@ -295,6 +338,27 @@ function AuthPage() {
                     readOnly={!!(invite && inviteInfo?.valid)}
                   />
                   <Field id="club" label="Club (optional)" type="text" value={club} onChange={setClub} required={false} />
+                  <div className="space-y-2">
+                    <Field
+                      id="club-code"
+                      label="Club code (optional)"
+                      type="text"
+                      value={clubCode}
+                      onChange={(v) => setClubCode(v.toUpperCase())}
+                      required={false}
+                    />
+                    {clubCodeChecking && <p className="text-xs text-muted-foreground">Checking code…</p>}
+                    {!clubCodeChecking && clubCodeCheck?.valid && (
+                      <p className="text-xs font-semibold text-primary">
+                        You'll join {clubCodeCheck.club_name} as a member.
+                      </p>
+                    )}
+                    {!clubCodeChecking && clubCodeCheck && !clubCodeCheck.valid && (
+                      <p className="text-xs font-semibold text-destructive">
+                        {clubCodeErrorMessage(clubCodeCheck.reason)}
+                      </p>
+                    )}
+                  </div>
                   <Field id="password-su" label="Password (min 6)" type="password" value={password} onChange={setPassword} />
                   <Button type="submit" disabled={loading} className="h-14 w-full rounded-xl text-base font-bold">
                     {loading ? "Creating…" : "Create account"}

@@ -2,17 +2,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { matBandReadout } from "@/lib/measurement";
 
 /**
- * Visual Scoring 5.0 — simplified direct placement + native pinch-to-zoom.
+ * Visual Scoring 5.0 — SINGLE CANONICAL implementation.
+ *
+ * Every drill and challenge that presents a target for bowl placement — Short
+ * Draw, Medium Draw, Long Draw, SLiMeD, Switch 32, Jack in the Ditch, all
+ * visual-target challenges — MUST route through this component. Do not fork
+ * per-drill variants; interaction tuning done here applies everywhere.
  *
  * - Tap: place the bowl exactly where the finger touches.
  * - Drag: bowl follows the finger 1:1.
+ * - Existing markers can be grabbed with a generous touch radius that scales
+ *   with zoom, so bowls near the jack stay draggable while zoomed in.
  * - Pinch: two-finger pinch zooms the target (max ~2×) and pans while zoomed.
  *   Marker glyphs stay visually constant — only the target enlarges.
  * - Double-tap: reset zoom + pan.
  * - Hard placement boundary at r=2.6 mats. Marker never disappears.
- * - Live score chip, active ring glow, guide line, cm-from-jack readout.
+ * - Live score chip, active ring glow, guide line, mat-band readout (V2:
+ *   users only ever see mats — never cm/mm or any bowl dimension).
  * - First-time tip explains tap-and-pinch (max 2 displays, opt-out).
  *
  * Scoring bands (unchanged):
@@ -31,7 +40,13 @@ export type VisualTap = {
   band: VisualBand;
   points: number;
   key: string;
+  /**
+   * How the coordinate was produced. Purely diagnostic — scoring, statistics
+   * and BSI treat every tap identically regardless of source.
+   */
+  source?: "visual_target" | "head_scan";
 };
+
 
 export type PlacedMarker = {
   x: number;
@@ -41,19 +56,27 @@ export type PlacedMarker = {
   active?: boolean;
 };
 
+// `key` is PERSISTED — it must never change or historical breakdowns stop
+// matching. `label` is display-only and uses the V2 edge-to-edge wording.
 const BAND_TO_KEY: Record<VisualBand, { key: string; points: number; label: string }> = {
-  half: { key: "half_mat", points: 5, label: "Half Mat" },
-  one: { key: "one_mat", points: 3, label: "One Mat" },
-  two: { key: "two_mats", points: 1, label: "Two Mats" },
-  outside: { key: "outside_two_mats", points: 0, label: "Outside" },
+  half: { key: "half_mat", points: 5, label: "Within 1/2 Mat" },
+  one: { key: "one_mat", points: 3, label: "Within 1 Mat" },
+  two: { key: "two_mats", points: 1, label: "Within 2 Mats" },
+  outside: { key: "outside_two_mats", points: 0, label: "Over 2 Mats" },
 };
 
-export function classifyTap(x: number, y: number): VisualTap {
+/**
+ * `bandScale` tightens (or, in principle, widens) the EXISTING scoring rings
+ * without changing bands, keys or points. 1 = the standard target; a narrow
+ * prescribed target passes 0.75. Callers that omit it are unaffected.
+ */
+export function classifyTap(x: number, y: number, bandScale = 1): VisualTap {
+  const s = bandScale > 0 ? bandScale : 1;
   const distance = Math.sqrt(x * x + y * y);
   let band: VisualBand;
-  if (distance <= 0.5) band = "half";
-  else if (distance <= 1.0) band = "one";
-  else if (distance <= 2.0) band = "two";
+  if (distance <= 0.5 * s) band = "half";
+  else if (distance <= 1.0 * s) band = "one";
+  else if (distance <= 2.0 * s) band = "two";
   else band = "outside";
   const { key, points } = BAND_TO_KEY[band];
   return { x, y, distance, band, points, key };
@@ -66,12 +89,21 @@ export function bandLabel(band: VisualBand): string {
 type Props = {
   value?: { x: number; y: number } | null;
   onSelect: (tap: VisualTap) => void;
+  /**
+   * Optional callback for repositioning an existing placed marker.
+   * Called on release with the marker's number and its new (clamped) tap.
+   * When omitted, existing markers are non-interactive.
+   */
+  onMoveMarker?: (number: number, tap: VisualTap) => void;
   hand?: "forehand" | "backhand";
   markers?: PlacedMarker[];
   currentNumber?: number;
   hideReadout?: boolean;
   hideHint?: boolean;
+  /** Scales the existing scoring rings (1 = standard, 0.75 = narrow target). */
+  bandScale?: number;
 };
+
 
 // SVG coords: 1 mat = 50 units. Base viewBox 280 → radius up to 2.8 mats.
 const UNIT = 50;
@@ -79,7 +111,6 @@ const VB = 280;
 const HALF = VB / 2;
 const MAX_R_MAT = 2.6;
 const MAX_R_SVG = MAX_R_MAT * UNIT;
-const CM_PER_MAT = 183;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 2;
 
@@ -118,12 +149,13 @@ function VisualScoringTip({ open, onClose }: { open: boolean; onClose: (dontShow
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(dontShow); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>💡 Precision Placement</DialogTitle>
+          <DialogTitle>Place your bowls</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Tap to quickly place a bowl. Or pinch with two fingers to zoom in for
-          even more accurate placement.
-        </p>
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p>Tap the target where each bowl finished.</p>
+          <p>Need to adjust one? Touch and drag any placed bowl to reposition it.</p>
+          <p className="text-xs">Tip: press and hold, then slide your finger to position a bowl precisely before releasing. Pinch to zoom in for extra precision.</p>
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
             checked={dontShow}
@@ -138,6 +170,7 @@ function VisualScoringTip({ open, onClose }: { open: boolean; onClose: (dontShow
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
   );
 }
 
@@ -146,11 +179,14 @@ function VisualScoringTip({ open, onClose }: { open: boolean; onClose: (dontShow
 function TargetGraphics({
   activeBand,
   boundaryGlow,
+  bandScale = 1,
 }: {
   activeBand?: VisualBand | null;
   boundaryGlow?: boolean;
+  bandScale?: number;
 }) {
   const glowColor = "var(--color-primary)";
+  const bs = bandScale > 0 ? bandScale : 1;
   return (
     <>
       <circle
@@ -165,21 +201,21 @@ function TargetGraphics({
         className={boundaryGlow ? "bt-ring-glow" : undefined}
       />
       <circle
-        cx={0} cy={0} r={2 * UNIT}
+        cx={0} cy={0} r={2 * UNIT * bs}
         fill="var(--color-card)"
         stroke={activeBand === "two" ? glowColor : "var(--color-border)"}
         strokeWidth={activeBand === "two" ? 2.5 : 1.5}
         className={activeBand === "two" ? "bt-ring-glow" : undefined}
       />
       <circle
-        cx={0} cy={0} r={1 * UNIT}
+        cx={0} cy={0} r={1 * UNIT * bs}
         fill="var(--color-secondary)"
         stroke={activeBand === "one" ? glowColor : "var(--color-border)"}
         strokeWidth={activeBand === "one" ? 2.5 : 1.5}
         className={activeBand === "one" ? "bt-ring-glow" : undefined}
       />
       <circle
-        cx={0} cy={0} r={0.5 * UNIT}
+        cx={0} cy={0} r={0.5 * UNIT * bs}
         fill="var(--color-card)"
         stroke={activeBand === "half" ? glowColor : "var(--color-border)"}
         strokeWidth={activeBand === "half" ? 2.5 : 1.5}
@@ -189,9 +225,9 @@ function TargetGraphics({
       <line x1={0} y1={-HALF} x2={0} y2={HALF} stroke="var(--color-border)" strokeDasharray="3 4" strokeWidth={0.6} />
       <circle cx={0} cy={0} r={7} fill="white" stroke="var(--color-primary)" strokeWidth={1.5} />
       <text x={0} y={2.6} textAnchor="middle" fontSize="8" fontWeight={900} fill="var(--color-primary)" style={{ fontFamily: "var(--font-display)" }}>J</text>
-      <text x={0} y={-1.5 * UNIT + 3} textAnchor="middle" fontSize="8" fill="var(--color-muted-foreground)">2m · 1</text>
-      <text x={0} y={-0.75 * UNIT + 3} textAnchor="middle" fontSize="8" fill="var(--color-muted-foreground)">1m · 3</text>
-      <text x={0} y={-0.25 * UNIT + 3} textAnchor="middle" fontSize="7" fill="var(--color-muted-foreground)">½ · 5</text>
+      <text x={0} y={(-1.5 * UNIT + 3) * bs} textAnchor="middle" fontSize="8" fill="var(--color-muted-foreground)">2 MATS · 1</text>
+      <text x={0} y={(-0.75 * UNIT + 3) * bs} textAnchor="middle" fontSize="8" fill="var(--color-muted-foreground)">1 MAT · 3</text>
+      <text x={0} y={(-0.25 * UNIT + 3) * bs} textAnchor="middle" fontSize="6.5" fill="var(--color-muted-foreground)">½ MAT · 5</text>
     </>
   );
 }
@@ -214,8 +250,11 @@ function NumberedMarker({
   settle?: boolean;
   unitScale?: number;
 }) {
-  const r = (active ? 9 : 7) * unitScale;
-  const fontSize = (active ? 10 : 9) * unitScale;
+  // Visible marker glyph — enlarged so the numbered bowl is easy to read on
+  // phones while still leaving scoring zones visible. The invisible touch
+  // radius (see hitExistingMarker) is unchanged.
+  const r = (active ? 13 : 10.5) * unitScale;
+  const fontSize = (active ? 14 : 12.5) * unitScale;
   return (
     <g
       className={settle ? "bt-marker-settle" : undefined}
@@ -277,10 +316,13 @@ type Placing = {
   atBoundary: boolean;
 };
 
-export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hideReadout, hideHint }: Props) {
+export function VisualTarget({ value, onSelect, onMoveMarker, hand, markers, currentNumber, hideReadout, hideHint, bandScale = 1 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [pending, setPending] = useState<VisualTap | null>(null);
   const [placing, setPlacing] = useState<Placing | null>(null);
+  const [moving, setMoving] = useState<{ number: number; svgX: number; svgY: number; hand?: "forehand" | "backhand" } | null>(null);
+  const movingRef = useRef<typeof moving>(null);
+  movingRef.current = moving;
   const [settleKey, setSettleKey] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 }); // pan is the SVG-coord center of the viewBox
@@ -291,6 +333,7 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
   const draggingRef = useRef(false);
   const pinchRef = useRef<{ dist: number; zoom: number; pan: { x: number; y: number }; midSvg: { x: number; y: number } } | null>(null);
   const lastTapAt = useRef<number>(0);
+
 
   // Show first-time tip.
   useEffect(() => {
@@ -344,7 +387,7 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
   const updatePlacing = useCallback((clientX: number, clientY: number) => {
     const p = computePlacing(clientX, clientY);
     if (!p) return;
-    const tap = classifyTap(p.svgX / UNIT, -p.svgY / UNIT);
+    const tap = classifyTap(p.svgX / UNIT, -p.svgY / UNIT, bandScale);
     if (lastBand.current && lastBand.current !== tap.band) tryHaptic(6);
     lastBand.current = tap.band;
     if (p.atBoundary && !lastBoundary.current) tryHaptic(10);
@@ -353,12 +396,74 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
   }, [computePlacing]);
 
   const commitPlacement = useCallback((p: Placing) => {
-    const tap = classifyTap(p.svgX / UNIT, -p.svgY / UNIT);
+    const tap = classifyTap(p.svgX / UNIT, -p.svgY / UNIT, bandScale);
     setPending(tap);
     setSettleKey((k) => k + 1);
     tryHaptic(14);
     onSelect(tap);
   }, [onSelect]);
+
+  /**
+   * Given a client-space point, find the nearest existing marker within a
+   * touch-friendly hit radius. Returns null if none, or `onMoveMarker` is
+   * not provided (in which case existing markers are non-interactive).
+   */
+  const hitExistingMarker = useCallback(
+    (clientX: number, clientY: number): PlacedMarker | null => {
+      if (!onMoveMarker || !markers || markers.length === 0) return null;
+      const el = containerRef.current;
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      const svgPerPx = (VB / zoom) / rect.width;
+      // ~36px touch radius (up from 28) in visual pixels, scaled to SVG
+      // units. Because svgPerPx already accounts for zoom, the effective
+      // grab radius stays constant on-screen even when zoomed in near the
+      // jack — where markers cluster and used to fight the interface.
+      const threshold = 36 * svgPerPx;
+      const { x: svgX, y: svgY } = localToSvg(clientX - rect.left, clientY - rect.top);
+      let best: { m: PlacedMarker; d: number } | null = null;
+      for (const m of markers) {
+        // Skip the live/pending bowl — its glyph appears at the same slot
+        // number and would otherwise block selection of an already-placed
+        // bowl sitting under it.
+        if (currentNumber != null && m.number === currentNumber) continue;
+        const mx = m.x * UNIT;
+        const my = -m.y * UNIT;
+        const d = Math.hypot(svgX - mx, svgY - my);
+        if (d <= threshold && (!best || d < best.d)) best = { m, d };
+      }
+      return best?.m ?? null;
+    },
+    [onMoveMarker, markers, localToSvg, zoom, currentNumber],
+  );
+
+  const updateMoving = useCallback(
+    (clientX: number, clientY: number) => {
+      const cur = movingRef.current;
+      if (!cur) return;
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const { x: rawSvgX, y: rawSvgY } = localToSvg(clientX - rect.left, clientY - rect.top);
+      const { x: svgX, y: svgY } = clampToBoundary(rawSvgX, rawSvgY);
+      const tap = classifyTap(svgX / UNIT, -svgY / UNIT, bandScale);
+      if (lastBand.current && lastBand.current !== tap.band) tryHaptic(6);
+      lastBand.current = tap.band;
+      setMoving({ number: cur.number, svgX, svgY, hand: cur.hand });
+    },
+    [localToSvg],
+  );
+
+  const commitMoving = useCallback(() => {
+    const cur = movingRef.current;
+    if (!cur) return;
+    const tap = classifyTap(cur.svgX / UNIT, -cur.svgY / UNIT, bandScale);
+    tryHaptic(14);
+    onMoveMarker?.(cur.number, tap);
+    setMoving(null);
+  }, [onMoveMarker]);
+
+
 
   /** Clamp pan so the visible viewBox stays inside the base target box. */
   const clampPan = useCallback((p: { x: number; y: number }, z: number) => {
@@ -405,11 +510,25 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
       }
       lastTapAt.current = now;
 
+      // If the touch lands on an existing marker, enter "move existing" mode
+      // instead of creating a new bowl. Requires onMoveMarker to be provided.
+      const hit = hitExistingMarker(t.clientX, t.clientY);
+      if (hit) {
+        e.preventDefault();
+        draggingRef.current = false;
+        setMoving({ number: hit.number, svgX: hit.x * UNIT, svgY: -hit.y * UNIT, hand: hit.hand });
+        lastBand.current = null;
+        lastBoundary.current = false;
+        tryHaptic(10);
+        return;
+      }
+
       draggingRef.current = true;
       lastBand.current = null;
       lastBoundary.current = false;
       updatePlacing(t.clientX, t.clientY);
     };
+
 
     const onTouchMove = (e: TouchEvent) => {
       if (pinchRef.current && e.touches.length >= 2) {
@@ -440,6 +559,14 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
         setPan(np);
         return;
       }
+      // Repositioning an existing marker takes priority over placement.
+      if (movingRef.current) {
+        const t = e.touches[0];
+        if (!t) return;
+        e.preventDefault();
+        updateMoving(t.clientX, t.clientY);
+        return;
+      }
       if (!draggingRef.current) return;
       const t = e.touches[0];
       if (!t) return;
@@ -454,6 +581,12 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
         if (zoom <= 1.001) setPan({ x: 0, y: 0 });
         return;
       }
+      if (e.touches.length === 0 && movingRef.current) {
+        commitMoving();
+        lastBand.current = null;
+        lastBoundary.current = false;
+        return;
+      }
       if (e.touches.length === 0 && draggingRef.current) {
         draggingRef.current = false;
         setPlacing((cur) => {
@@ -465,6 +598,7 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
       }
     };
 
+
     el.addEventListener("touchstart", onTouchStart, { passive: false });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
     el.addEventListener("touchend", onTouchEnd);
@@ -475,22 +609,39 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [updatePlacing, commitPlacement, localToSvg, clampPan, zoom, pan, resetView]);
+  }, [updatePlacing, commitPlacement, localToSvg, clampPan, zoom, pan, resetView, hitExistingMarker, updateMoving, commitMoving]);
 
   // Mouse desktop parity.
   const mouseDragging = useRef(false);
   const onMouseDown = (e: React.MouseEvent) => {
     if ("ontouchstart" in window) return;
+    const hit = hitExistingMarker(e.clientX, e.clientY);
+    if (hit) {
+      setMoving({ number: hit.number, svgX: hit.x * UNIT, svgY: -hit.y * UNIT, hand: hit.hand });
+      lastBand.current = null;
+      lastBoundary.current = false;
+      return;
+    }
     mouseDragging.current = true;
     lastBand.current = null;
     lastBoundary.current = false;
     updatePlacing(e.clientX, e.clientY);
   };
   const onMouseMove = (e: React.MouseEvent) => {
+    if (movingRef.current) {
+      updateMoving(e.clientX, e.clientY);
+      return;
+    }
     if (!mouseDragging.current) return;
     updatePlacing(e.clientX, e.clientY);
   };
   const onMouseUp = () => {
+    if (movingRef.current) {
+      commitMoving();
+      lastBand.current = null;
+      lastBoundary.current = false;
+      return;
+    }
     if (!mouseDragging.current) return;
     mouseDragging.current = false;
     setPlacing((cur) => {
@@ -500,10 +651,11 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
     lastBand.current = null;
     lastBoundary.current = false;
   };
+
   const onDoubleClick = () => resetView();
 
   const showLive = currentNumber != null || value != null;
-  const settledMarker = showLive ? (pending ?? (value ? classifyTap(value.x, value.y) : null)) : null;
+  const settledMarker = showLive ? (pending ?? (value ? classifyTap(value.x, value.y, bandScale) : null)) : null;
   const mx = settledMarker ? settledMarker.x * UNIT : null;
   const my = settledMarker ? -settledMarker.y * UNIT : null;
   const liveNumber = currentNumber ?? ((markers?.length ?? 0) + 1);
@@ -511,14 +663,15 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
   const dragging = placing != null;
   const liveTap = useMemo<VisualTap | null>(() => {
     if (!placing) return null;
-    return classifyTap(placing.svgX / UNIT, -placing.svgY / UNIT);
+    return classifyTap(placing.svgX / UNIT, -placing.svgY / UNIT, bandScale);
   }, [placing]);
   const activeBand = liveTap?.band ?? null;
 
   const liveSvgX = dragging && placing ? placing.svgX : mx;
   const liveSvgY = dragging && placing ? placing.svgY : my;
 
-  const distanceCm = liveTap ? Math.round(liveTap.distance * CM_PER_MAT) : null;
+  // V2: mat-band readout only. No centimetre / millimetre readout is shown.
+  const matReadout = liveTap ? matBandReadout(liveTap.distance, bandScale) : null;
 
   const vbSize = VB / zoom;
   const vbX = pan.x - vbSize / 2;
@@ -549,9 +702,9 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
           style={{ WebkitUserSelect: "none" }}
         >
           <svg viewBox={`${vbX} ${vbY} ${vbSize} ${vbSize}`} className="h-full w-full">
-            <TargetGraphics activeBand={activeBand} boundaryGlow={placing?.atBoundary} />
+            <TargetGraphics activeBand={activeBand} boundaryGlow={placing?.atBoundary} bandScale={bandScale} />
 
-            {markers?.map((m) => (
+            {markers?.filter((m) => moving?.number !== m.number).map((m) => (
               <NumberedMarker
                 key={`m-${m.number}`}
                 x={m.x * UNIT}
@@ -562,6 +715,18 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
                 unitScale={unitScale}
               />
             ))}
+
+            {moving && (
+              <NumberedMarker
+                key={`moving-${moving.number}`}
+                x={moving.svgX}
+                y={moving.svgY}
+                n={moving.number}
+                hand={moving.hand}
+                active
+                unitScale={unitScale}
+              />
+            )}
 
             {dragging && placing && (
               <line
@@ -574,7 +739,7 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
               />
             )}
 
-            {liveSvgX != null && liveSvgY != null && (
+            {liveSvgX != null && liveSvgY != null && !moving && (
               <NumberedMarker
                 key={`live-${settleKey}`}
                 x={liveSvgX}
@@ -587,6 +752,7 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
               />
             )}
           </svg>
+
 
           {zoom > 1.01 && (
             <button
@@ -609,9 +775,9 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
                   {bandLabel(liveTap.band)}
                 </span>
               </div>
-              {distanceCm != null && (
+              {matReadout != null && (
                 <span className="text-[9px] font-semibold text-muted-foreground leading-none rounded-full bg-card/80 px-1.5 py-0.5">
-                  {distanceCm} cm from jack
+                  {matReadout}
                 </span>
               )}
             </div>
@@ -621,9 +787,10 @@ export function VisualTarget({ value, onSelect, hand, markers, currentNumber, hi
 
       {!hideHint && (
         <p className="text-center text-[10px] text-muted-foreground">
-          Tap or drag to place · pinch to zoom · double-tap to reset
+          Tap to place · Drag a bowl to adjust · pinch to zoom
         </p>
       )}
+
       {!hideReadout && settledMarker && !dragging && (
         <p className="text-center text-xs font-semibold text-muted-foreground">
           {bandLabel(settledMarker.band)} · {settledMarker.points} pt{settledMarker.points === 1 ? "" : "s"} · {settledMarker.distance.toFixed(2)} mats

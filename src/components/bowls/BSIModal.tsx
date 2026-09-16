@@ -106,7 +106,17 @@ export function BSIModal({ open, onOpenChange, results, drills }: Props) {
               <p className="font-display text-base font-bold">{level.label}</p>
             </div>
           </div>
+          <p className="mt-3 rounded-xl bg-background/60 p-2.5 text-xs leading-relaxed text-muted-foreground">
+            <strong className="text-foreground">Session BSI</strong> reflects this session only.{" "}
+            <strong className="text-foreground">Overall BSI</strong> reflects your broader performance history
+            across drills and challenges — it&rsquo;s weighted across every drill you&rsquo;ve recorded, so a few
+            low sessions on one drill only move it a little. BSI reflects your performance
+            <em> and the difficulty of the skill</em>, so attacking shots like driving and upshots are
+            judged against what good execution actually looks like in those skills.
+          </p>
+
         </section>
+
 
         {/* Stats grid */}
         <section className="grid grid-cols-3 gap-2">

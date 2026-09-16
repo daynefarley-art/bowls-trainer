@@ -123,6 +123,19 @@ export async function startSession(userId: string, setup?: SessionSetup): Promis
   return data as TrainingSession;
 }
 
+// Auto-practice tracking: return the active session if any, otherwise start a new one.
+export async function ensureActivePractice(userId: string): Promise<TrainingSession> {
+  const existing = await getActiveSession(userId);
+  if (existing) {
+    // If paused for a while, resume it automatically so time accrues.
+    if (existing.status === "paused") {
+      try { return await resumeSession(existing.id); } catch { return existing; }
+    }
+    return existing;
+  }
+  return startSession(userId);
+}
+
 export async function getLastCompletedSession(userId: string): Promise<TrainingSession | null> {
   if (isDemoMode()) return null;
   const { data } = await sb

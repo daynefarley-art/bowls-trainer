@@ -8,6 +8,8 @@ import {
   getAdminUserStats,
   setUserStatus,
   changeUserRole,
+  hardDeleteUser,
+  sendPasswordReset,
   type AdminUser,
   type UserRole,
   type UserStatus,
@@ -40,7 +42,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft, ShieldCheck, UserX, UserCheck, Trash2, Pencil, Users } from "lucide-react";
+import { ChevronLeft, ShieldCheck, UserX, UserCheck, Trash2, Pencil, Users, KeyRound } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/admin/user-management")({
   component: UserManagementPage,
@@ -54,6 +56,8 @@ function UserManagementPage() {
   const statsFn = useServerFn(getAdminUserStats);
   const setStatusFn = useServerFn(setUserStatus);
   const changeRoleFn = useServerFn(changeUserRole);
+  const hardDeleteFn = useServerFn(hardDeleteUser);
+  const sendResetFn = useServerFn(sendPasswordReset);
 
   const { data: users = [] } = useQuery({ queryKey: ["admin-users"], queryFn: listFn });
   const { data: stats } = useQuery({ queryKey: ["admin-user-stats"], queryFn: statsFn });
@@ -64,6 +68,8 @@ function UserManagementPage() {
   const [roleTarget, setRoleTarget] = useState<AdminUser | null>(null);
   const [roleChoice, setRoleChoice] = useState<UserRole>("player");
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
+  const [resetSending, setResetSending] = useState(false);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -216,7 +222,13 @@ function UserManagementPage() {
                   </button>
                 )}
                 <button
-                  disabled={u.status === "deleted"}
+                  onClick={() => setResetTarget(u)}
+                  disabled={!u.email}
+                  className="flex items-center justify-center gap-1 rounded-lg bg-secondary px-2 py-1.5 text-xs font-semibold disabled:opacity-40"
+                >
+                  <KeyRound className="h-3.5 w-3.5" /> Send password reset
+                </button>
+                <button
                   onClick={() => setDeleteTarget(u)}
                   className="flex items-center justify-center gap-1 rounded-lg bg-destructive/10 px-2 py-1.5 text-xs font-semibold text-destructive disabled:opacity-40"
                 >
@@ -261,15 +273,53 @@ function UserManagementPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Send password reset confirmation */}
+      <AlertDialog open={!!resetTarget} onOpenChange={(o) => !o && setResetTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send a password reset email to:</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{resetTarget?.email}</strong>
+              <br />
+              They will receive a secure reset link. Their current password stays active until
+              they choose a new one. No password is set or revealed here.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={resetSending}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!resetTarget) return;
+                setResetSending(true);
+                try {
+                  await sendResetFn({
+                    data: { userId: resetTarget.id, origin: window.location.origin },
+                  });
+                  toast.success(`Password reset email sent to ${resetTarget.email}`);
+                  setResetTarget(null);
+                } catch (err: any) {
+                  toast.error(err?.message ?? "Could not send reset email");
+                }
+                setResetSending(false);
+              }}
+            >
+              {resetSending ? "Sending…" : "Send reset"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Delete confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this user?</AlertDialogTitle>
+            <AlertDialogTitle>Permanently delete this user?</AlertDialogTitle>
             <AlertDialogDescription>
-              The account will be marked as <strong>Deleted</strong> and the user can no longer
-              sign in. Historical records (BSI, drills, challenges, sessions, coach notes) are
-              retained for reporting.
+              This <strong>permanently deletes</strong> the account and all associated
+              data (profile, roles, drill/challenge results, sessions, coach notes).
+              The email address will be free to sign up again. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -277,12 +327,18 @@ function UserManagementPage() {
             <AlertDialogAction
               onClick={async () => {
                 if (!deleteTarget) return;
-                await doSetStatus(deleteTarget.id, "deleted");
+                try {
+                  await hardDeleteFn({ data: { userId: deleteTarget.id } });
+                  toast.success("User permanently deleted");
+                  invalidate();
+                } catch (e: any) {
+                  toast.error(e?.message ?? "Delete failed");
+                }
                 setDeleteTarget(null);
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete user
+              Delete permanently
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

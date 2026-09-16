@@ -18,37 +18,57 @@ import { Route as AuthenticatedSquadRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedRecordRouteImport } from './routes/_authenticated/record'
 import { Route as AuthenticatedProgressRouteImport } from './routes/_authenticated/progress'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
+import { Route as AuthenticatedInsightsRouteImport } from './routes/_authenticated/insights'
 import { Route as AuthenticatedHistoryRouteImport } from './routes/_authenticated/history'
 import { Route as AuthenticatedDrillsRouteImport } from './routes/_authenticated/drills'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedCoachRouteImport } from './routes/_authenticated/coach'
+import { Route as AuthenticatedClubAdminRouteImport } from './routes/_authenticated/club-admin'
 import { Route as AuthenticatedChallengesRouteImport } from './routes/_authenticated/challenges'
 import { Route as AuthenticatedChallengeHistoryRouteImport } from './routes/_authenticated/challenge-history'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedTrainingIndexRouteImport } from './routes/_authenticated/training.index'
+import { Route as AuthenticatedTrainerIndexRouteImport } from './routes/_authenticated/trainer.index'
 import { Route as AuthenticatedSquadIndexRouteImport } from './routes/_authenticated/squad.index'
 import { Route as AuthenticatedSessionsIndexRouteImport } from './routes/_authenticated/sessions.index'
+import { Route as AuthenticatedPerformanceIndexRouteImport } from './routes/_authenticated/performance.index'
 import { Route as AuthenticatedCoachIndexRouteImport } from './routes/_authenticated/coach.index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
+import { Route as AuthenticatedTrainingTournamentRouteImport } from './routes/_authenticated/training.tournament'
+import { Route as AuthenticatedTrainingProgramIdRouteImport } from './routes/_authenticated/training.$programId'
+import { Route as AuthenticatedTrainerIdRouteImport } from './routes/_authenticated/trainer.$id'
 import { Route as AuthenticatedSessionsIdRouteImport } from './routes/_authenticated/sessions.$id'
 import { Route as AuthenticatedRecordDrawSlugRouteImport } from './routes/_authenticated/record-draw.$slug'
+import { Route as AuthenticatedPracticeWeekRouteImport } from './routes/_authenticated/practice.week'
+import { Route as AuthenticatedPracticeSavedRouteImport } from './routes/_authenticated/practice.saved'
+import { Route as AuthenticatedPerformanceSkillRouteImport } from './routes/_authenticated/performance.$skill'
 import { Route as AuthenticatedDrillSlugRouteImport } from './routes/_authenticated/drill.$slug'
+import { Route as AuthenticatedDiagnosticsHeadScanRouteImport } from './routes/_authenticated/diagnostics.head-scan'
 import { Route as AuthenticatedChallengeSlugRouteImport } from './routes/_authenticated/challenge.$slug'
 import { Route as AuthenticatedChallengeRecordSlugRouteImport } from './routes/_authenticated/challenge-record.$slug'
 import { Route as AuthenticatedChallengeProgressSlugRouteImport } from './routes/_authenticated/challenge-progress.$slug'
 import { Route as AuthenticatedAdminUserManagementRouteImport } from './routes/_authenticated/admin.user-management'
 import { Route as AuthenticatedAdminInvitationsRouteImport } from './routes/_authenticated/admin.invitations'
 import { Route as AuthenticatedAdminAnalyticsRouteImport } from './routes/_authenticated/admin.analytics'
+import { Route as AuthenticatedCoachProgramsIndexRouteImport } from './routes/_authenticated/coach.programs.index'
 import { Route as AuthenticatedCoachPlayersIndexRouteImport } from './routes/_authenticated/coach.players.index'
 import { Route as AuthenticatedAdminDevIndexRouteImport } from './routes/_authenticated/admin.dev.index'
+import { Route as AuthenticatedAdminClubsIndexRouteImport } from './routes/_authenticated/admin/clubs/index'
+import { Route as LovableEmailAuthWebhookRouteImport } from './routes/lovable/email/auth/webhook'
+import { Route as LovableEmailAuthPreviewRouteImport } from './routes/lovable/email/auth/preview'
 import { Route as AuthenticatedSquadVsMemberIdRouteImport } from './routes/_authenticated/squad.vs.$memberId'
 import { Route as AuthenticatedSquadLadderSlugRouteImport } from './routes/_authenticated/squad.ladder.$slug'
+import { Route as AuthenticatedCoachProgramsNewRouteImport } from './routes/_authenticated/coach.programs.new'
+import { Route as AuthenticatedCoachProgramsProgramIdRouteImport } from './routes/_authenticated/coach.programs.$programId'
 import { Route as AuthenticatedCoachPlayersPlayerIdRouteImport } from './routes/_authenticated/coach.players.$playerId'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin.users.$userId'
+import { Route as AuthenticatedAdminClubsClubIdRouteImport } from './routes/_authenticated/admin/clubs/$clubId'
 import { Route as AuthenticatedAdminDevViewUserIdRouteImport } from './routes/_authenticated/admin.dev.view.$userId'
 import { Route as AuthenticatedAdminDevUsersUserIdRouteImport } from './routes/_authenticated/admin.dev.users.$userId'
 import { Route as AuthenticatedAdminDevSessionsSessionIdRouteImport } from './routes/_authenticated/admin.dev.sessions.$sessionId'
 import { Route as AuthenticatedAdminDevResultsResultIdRouteImport } from './routes/_authenticated/admin.dev.results.$resultId'
 import { Route as AuthenticatedAdminDevChallengesResultIdRouteImport } from './routes/_authenticated/admin.dev.challenges.$resultId'
+import { Route as AuthenticatedAdminDevBsiUserIdRouteImport } from './routes/_authenticated/admin.dev.bsi.$userId'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
@@ -94,6 +114,11 @@ const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedInsightsRoute = AuthenticatedInsightsRouteImport.update({
+  id: '/insights',
+  path: '/insights',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedHistoryRoute = AuthenticatedHistoryRouteImport.update({
   id: '/history',
   path: '/history',
@@ -114,6 +139,11 @@ const AuthenticatedCoachRoute = AuthenticatedCoachRouteImport.update({
   path: '/coach',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedClubAdminRoute = AuthenticatedClubAdminRouteImport.update({
+  id: '/club-admin',
+  path: '/club-admin',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedChallengesRoute = AuthenticatedChallengesRouteImport.update({
   id: '/challenges',
   path: '/challenges',
@@ -130,6 +160,18 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTrainingIndexRoute =
+  AuthenticatedTrainingIndexRouteImport.update({
+    id: '/training/',
+    path: '/training/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainerIndexRoute =
+  AuthenticatedTrainerIndexRouteImport.update({
+    id: '/trainer/',
+    path: '/trainer/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSquadIndexRoute = AuthenticatedSquadIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -139,6 +181,12 @@ const AuthenticatedSessionsIndexRoute =
   AuthenticatedSessionsIndexRouteImport.update({
     id: '/sessions/',
     path: '/sessions/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPerformanceIndexRoute =
+  AuthenticatedPerformanceIndexRouteImport.update({
+    id: '/performance/',
+    path: '/performance/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedCoachIndexRoute = AuthenticatedCoachIndexRouteImport.update({
@@ -151,6 +199,23 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedAdminRoute,
 } as any)
+const AuthenticatedTrainingTournamentRoute =
+  AuthenticatedTrainingTournamentRouteImport.update({
+    id: '/training/tournament',
+    path: '/training/tournament',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingProgramIdRoute =
+  AuthenticatedTrainingProgramIdRouteImport.update({
+    id: '/training/$programId',
+    path: '/training/$programId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainerIdRoute = AuthenticatedTrainerIdRouteImport.update({
+  id: '/trainer/$id',
+  path: '/trainer/$id',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSessionsIdRoute = AuthenticatedSessionsIdRouteImport.update({
   id: '/sessions/$id',
   path: '/sessions/$id',
@@ -162,11 +227,35 @@ const AuthenticatedRecordDrawSlugRoute =
     path: '/record-draw/$slug',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedPracticeWeekRoute =
+  AuthenticatedPracticeWeekRouteImport.update({
+    id: '/practice/week',
+    path: '/practice/week',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPracticeSavedRoute =
+  AuthenticatedPracticeSavedRouteImport.update({
+    id: '/practice/saved',
+    path: '/practice/saved',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPerformanceSkillRoute =
+  AuthenticatedPerformanceSkillRouteImport.update({
+    id: '/performance/$skill',
+    path: '/performance/$skill',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedDrillSlugRoute = AuthenticatedDrillSlugRouteImport.update({
   id: '/drill/$slug',
   path: '/drill/$slug',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedDiagnosticsHeadScanRoute =
+  AuthenticatedDiagnosticsHeadScanRouteImport.update({
+    id: '/diagnostics/head-scan',
+    path: '/diagnostics/head-scan',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedChallengeSlugRoute =
   AuthenticatedChallengeSlugRouteImport.update({
     id: '/challenge/$slug',
@@ -203,6 +292,12 @@ const AuthenticatedAdminAnalyticsRoute =
     path: '/analytics',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
+const AuthenticatedCoachProgramsIndexRoute =
+  AuthenticatedCoachProgramsIndexRouteImport.update({
+    id: '/programs/',
+    path: '/programs/',
+    getParentRoute: () => AuthenticatedCoachRoute,
+  } as any)
 const AuthenticatedCoachPlayersIndexRoute =
   AuthenticatedCoachPlayersIndexRouteImport.update({
     id: '/players/',
@@ -215,6 +310,22 @@ const AuthenticatedAdminDevIndexRoute =
     path: '/dev/',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
+const AuthenticatedAdminClubsIndexRoute =
+  AuthenticatedAdminClubsIndexRouteImport.update({
+    id: '/clubs/',
+    path: '/clubs/',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const LovableEmailAuthWebhookRoute = LovableEmailAuthWebhookRouteImport.update({
+  id: '/lovable/email/auth/webhook',
+  path: '/lovable/email/auth/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LovableEmailAuthPreviewRoute = LovableEmailAuthPreviewRouteImport.update({
+  id: '/lovable/email/auth/preview',
+  path: '/lovable/email/auth/preview',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedSquadVsMemberIdRoute =
   AuthenticatedSquadVsMemberIdRouteImport.update({
     id: '/vs/$memberId',
@@ -227,6 +338,18 @@ const AuthenticatedSquadLadderSlugRoute =
     path: '/ladder/$slug',
     getParentRoute: () => AuthenticatedSquadRoute,
   } as any)
+const AuthenticatedCoachProgramsNewRoute =
+  AuthenticatedCoachProgramsNewRouteImport.update({
+    id: '/programs/new',
+    path: '/programs/new',
+    getParentRoute: () => AuthenticatedCoachRoute,
+  } as any)
+const AuthenticatedCoachProgramsProgramIdRoute =
+  AuthenticatedCoachProgramsProgramIdRouteImport.update({
+    id: '/programs/$programId',
+    path: '/programs/$programId',
+    getParentRoute: () => AuthenticatedCoachRoute,
+  } as any)
 const AuthenticatedCoachPlayersPlayerIdRoute =
   AuthenticatedCoachPlayersPlayerIdRouteImport.update({
     id: '/players/$playerId',
@@ -237,6 +360,12 @@ const AuthenticatedAdminUsersUserIdRoute =
   AuthenticatedAdminUsersUserIdRouteImport.update({
     id: '/users/$userId',
     path: '/users/$userId',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminClubsClubIdRoute =
+  AuthenticatedAdminClubsClubIdRouteImport.update({
+    id: '/clubs/$clubId',
+    path: '/clubs/$clubId',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
 const AuthenticatedAdminDevViewUserIdRoute =
@@ -269,6 +398,12 @@ const AuthenticatedAdminDevChallengesResultIdRoute =
     path: '/dev/challenges/$resultId',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
+const AuthenticatedAdminDevBsiUserIdRoute =
+  AuthenticatedAdminDevBsiUserIdRouteImport.update({
+    id: '/dev/bsi/$userId',
+    path: '/dev/bsi/$userId',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -277,10 +412,12 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/challenge-history': typeof AuthenticatedChallengeHistoryRoute
   '/challenges': typeof AuthenticatedChallengesRoute
+  '/club-admin': typeof AuthenticatedClubAdminRoute
   '/coach': typeof AuthenticatedCoachRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/drills': typeof AuthenticatedDrillsRoute
   '/history': typeof AuthenticatedHistoryRoute
+  '/insights': typeof AuthenticatedInsightsRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/progress': typeof AuthenticatedProgressRoute
   '/record': typeof AuthenticatedRecordRoute
@@ -292,19 +429,37 @@ export interface FileRoutesByFullPath {
   '/challenge-progress/$slug': typeof AuthenticatedChallengeProgressSlugRoute
   '/challenge-record/$slug': typeof AuthenticatedChallengeRecordSlugRoute
   '/challenge/$slug': typeof AuthenticatedChallengeSlugRoute
+  '/diagnostics/head-scan': typeof AuthenticatedDiagnosticsHeadScanRoute
   '/drill/$slug': typeof AuthenticatedDrillSlugRoute
+  '/performance/$skill': typeof AuthenticatedPerformanceSkillRoute
+  '/practice/saved': typeof AuthenticatedPracticeSavedRoute
+  '/practice/week': typeof AuthenticatedPracticeWeekRoute
   '/record-draw/$slug': typeof AuthenticatedRecordDrawSlugRoute
   '/sessions/$id': typeof AuthenticatedSessionsIdRoute
+  '/trainer/$id': typeof AuthenticatedTrainerIdRoute
+  '/training/$programId': typeof AuthenticatedTrainingProgramIdRoute
+  '/training/tournament': typeof AuthenticatedTrainingTournamentRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/coach/': typeof AuthenticatedCoachIndexRoute
+  '/performance/': typeof AuthenticatedPerformanceIndexRoute
   '/sessions/': typeof AuthenticatedSessionsIndexRoute
   '/squad/': typeof AuthenticatedSquadIndexRoute
+  '/trainer/': typeof AuthenticatedTrainerIndexRoute
+  '/training/': typeof AuthenticatedTrainingIndexRoute
+  '/admin/clubs/$clubId': typeof AuthenticatedAdminClubsClubIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/coach/players/$playerId': typeof AuthenticatedCoachPlayersPlayerIdRoute
+  '/coach/programs/$programId': typeof AuthenticatedCoachProgramsProgramIdRoute
+  '/coach/programs/new': typeof AuthenticatedCoachProgramsNewRoute
   '/squad/ladder/$slug': typeof AuthenticatedSquadLadderSlugRoute
   '/squad/vs/$memberId': typeof AuthenticatedSquadVsMemberIdRoute
+  '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
+  '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
+  '/admin/clubs/': typeof AuthenticatedAdminClubsIndexRoute
   '/admin/dev/': typeof AuthenticatedAdminDevIndexRoute
   '/coach/players/': typeof AuthenticatedCoachPlayersIndexRoute
+  '/coach/programs/': typeof AuthenticatedCoachProgramsIndexRoute
+  '/admin/dev/bsi/$userId': typeof AuthenticatedAdminDevBsiUserIdRoute
   '/admin/dev/challenges/$resultId': typeof AuthenticatedAdminDevChallengesResultIdRoute
   '/admin/dev/results/$resultId': typeof AuthenticatedAdminDevResultsResultIdRoute
   '/admin/dev/sessions/$sessionId': typeof AuthenticatedAdminDevSessionsSessionIdRoute
@@ -317,9 +472,11 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/challenge-history': typeof AuthenticatedChallengeHistoryRoute
   '/challenges': typeof AuthenticatedChallengesRoute
+  '/club-admin': typeof AuthenticatedClubAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/drills': typeof AuthenticatedDrillsRoute
   '/history': typeof AuthenticatedHistoryRoute
+  '/insights': typeof AuthenticatedInsightsRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/progress': typeof AuthenticatedProgressRoute
   '/record': typeof AuthenticatedRecordRoute
@@ -330,19 +487,37 @@ export interface FileRoutesByTo {
   '/challenge-progress/$slug': typeof AuthenticatedChallengeProgressSlugRoute
   '/challenge-record/$slug': typeof AuthenticatedChallengeRecordSlugRoute
   '/challenge/$slug': typeof AuthenticatedChallengeSlugRoute
+  '/diagnostics/head-scan': typeof AuthenticatedDiagnosticsHeadScanRoute
   '/drill/$slug': typeof AuthenticatedDrillSlugRoute
+  '/performance/$skill': typeof AuthenticatedPerformanceSkillRoute
+  '/practice/saved': typeof AuthenticatedPracticeSavedRoute
+  '/practice/week': typeof AuthenticatedPracticeWeekRoute
   '/record-draw/$slug': typeof AuthenticatedRecordDrawSlugRoute
   '/sessions/$id': typeof AuthenticatedSessionsIdRoute
+  '/trainer/$id': typeof AuthenticatedTrainerIdRoute
+  '/training/$programId': typeof AuthenticatedTrainingProgramIdRoute
+  '/training/tournament': typeof AuthenticatedTrainingTournamentRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/coach': typeof AuthenticatedCoachIndexRoute
+  '/performance': typeof AuthenticatedPerformanceIndexRoute
   '/sessions': typeof AuthenticatedSessionsIndexRoute
   '/squad': typeof AuthenticatedSquadIndexRoute
+  '/trainer': typeof AuthenticatedTrainerIndexRoute
+  '/training': typeof AuthenticatedTrainingIndexRoute
+  '/admin/clubs/$clubId': typeof AuthenticatedAdminClubsClubIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/coach/players/$playerId': typeof AuthenticatedCoachPlayersPlayerIdRoute
+  '/coach/programs/$programId': typeof AuthenticatedCoachProgramsProgramIdRoute
+  '/coach/programs/new': typeof AuthenticatedCoachProgramsNewRoute
   '/squad/ladder/$slug': typeof AuthenticatedSquadLadderSlugRoute
   '/squad/vs/$memberId': typeof AuthenticatedSquadVsMemberIdRoute
+  '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
+  '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
+  '/admin/clubs': typeof AuthenticatedAdminClubsIndexRoute
   '/admin/dev': typeof AuthenticatedAdminDevIndexRoute
   '/coach/players': typeof AuthenticatedCoachPlayersIndexRoute
+  '/coach/programs': typeof AuthenticatedCoachProgramsIndexRoute
+  '/admin/dev/bsi/$userId': typeof AuthenticatedAdminDevBsiUserIdRoute
   '/admin/dev/challenges/$resultId': typeof AuthenticatedAdminDevChallengesResultIdRoute
   '/admin/dev/results/$resultId': typeof AuthenticatedAdminDevResultsResultIdRoute
   '/admin/dev/sessions/$sessionId': typeof AuthenticatedAdminDevSessionsSessionIdRoute
@@ -358,10 +533,12 @@ export interface FileRoutesById {
   '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/challenge-history': typeof AuthenticatedChallengeHistoryRoute
   '/_authenticated/challenges': typeof AuthenticatedChallengesRoute
+  '/_authenticated/club-admin': typeof AuthenticatedClubAdminRoute
   '/_authenticated/coach': typeof AuthenticatedCoachRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/drills': typeof AuthenticatedDrillsRoute
   '/_authenticated/history': typeof AuthenticatedHistoryRoute
+  '/_authenticated/insights': typeof AuthenticatedInsightsRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/progress': typeof AuthenticatedProgressRoute
   '/_authenticated/record': typeof AuthenticatedRecordRoute
@@ -373,19 +550,37 @@ export interface FileRoutesById {
   '/_authenticated/challenge-progress/$slug': typeof AuthenticatedChallengeProgressSlugRoute
   '/_authenticated/challenge-record/$slug': typeof AuthenticatedChallengeRecordSlugRoute
   '/_authenticated/challenge/$slug': typeof AuthenticatedChallengeSlugRoute
+  '/_authenticated/diagnostics/head-scan': typeof AuthenticatedDiagnosticsHeadScanRoute
   '/_authenticated/drill/$slug': typeof AuthenticatedDrillSlugRoute
+  '/_authenticated/performance/$skill': typeof AuthenticatedPerformanceSkillRoute
+  '/_authenticated/practice/saved': typeof AuthenticatedPracticeSavedRoute
+  '/_authenticated/practice/week': typeof AuthenticatedPracticeWeekRoute
   '/_authenticated/record-draw/$slug': typeof AuthenticatedRecordDrawSlugRoute
   '/_authenticated/sessions/$id': typeof AuthenticatedSessionsIdRoute
+  '/_authenticated/trainer/$id': typeof AuthenticatedTrainerIdRoute
+  '/_authenticated/training/$programId': typeof AuthenticatedTrainingProgramIdRoute
+  '/_authenticated/training/tournament': typeof AuthenticatedTrainingTournamentRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/coach/': typeof AuthenticatedCoachIndexRoute
+  '/_authenticated/performance/': typeof AuthenticatedPerformanceIndexRoute
   '/_authenticated/sessions/': typeof AuthenticatedSessionsIndexRoute
   '/_authenticated/squad/': typeof AuthenticatedSquadIndexRoute
+  '/_authenticated/trainer/': typeof AuthenticatedTrainerIndexRoute
+  '/_authenticated/training/': typeof AuthenticatedTrainingIndexRoute
+  '/_authenticated/admin/clubs/$clubId': typeof AuthenticatedAdminClubsClubIdRoute
   '/_authenticated/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/_authenticated/coach/players/$playerId': typeof AuthenticatedCoachPlayersPlayerIdRoute
+  '/_authenticated/coach/programs/$programId': typeof AuthenticatedCoachProgramsProgramIdRoute
+  '/_authenticated/coach/programs/new': typeof AuthenticatedCoachProgramsNewRoute
   '/_authenticated/squad/ladder/$slug': typeof AuthenticatedSquadLadderSlugRoute
   '/_authenticated/squad/vs/$memberId': typeof AuthenticatedSquadVsMemberIdRoute
+  '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
+  '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
+  '/_authenticated/admin/clubs/': typeof AuthenticatedAdminClubsIndexRoute
   '/_authenticated/admin/dev/': typeof AuthenticatedAdminDevIndexRoute
   '/_authenticated/coach/players/': typeof AuthenticatedCoachPlayersIndexRoute
+  '/_authenticated/coach/programs/': typeof AuthenticatedCoachProgramsIndexRoute
+  '/_authenticated/admin/dev/bsi/$userId': typeof AuthenticatedAdminDevBsiUserIdRoute
   '/_authenticated/admin/dev/challenges/$resultId': typeof AuthenticatedAdminDevChallengesResultIdRoute
   '/_authenticated/admin/dev/results/$resultId': typeof AuthenticatedAdminDevResultsResultIdRoute
   '/_authenticated/admin/dev/sessions/$sessionId': typeof AuthenticatedAdminDevSessionsSessionIdRoute
@@ -401,10 +596,12 @@ export interface FileRouteTypes {
     | '/admin'
     | '/challenge-history'
     | '/challenges'
+    | '/club-admin'
     | '/coach'
     | '/dashboard'
     | '/drills'
     | '/history'
+    | '/insights'
     | '/profile'
     | '/progress'
     | '/record'
@@ -416,19 +613,37 @@ export interface FileRouteTypes {
     | '/challenge-progress/$slug'
     | '/challenge-record/$slug'
     | '/challenge/$slug'
+    | '/diagnostics/head-scan'
     | '/drill/$slug'
+    | '/performance/$skill'
+    | '/practice/saved'
+    | '/practice/week'
     | '/record-draw/$slug'
     | '/sessions/$id'
+    | '/trainer/$id'
+    | '/training/$programId'
+    | '/training/tournament'
     | '/admin/'
     | '/coach/'
+    | '/performance/'
     | '/sessions/'
     | '/squad/'
+    | '/trainer/'
+    | '/training/'
+    | '/admin/clubs/$clubId'
     | '/admin/users/$userId'
     | '/coach/players/$playerId'
+    | '/coach/programs/$programId'
+    | '/coach/programs/new'
     | '/squad/ladder/$slug'
     | '/squad/vs/$memberId'
+    | '/lovable/email/auth/preview'
+    | '/lovable/email/auth/webhook'
+    | '/admin/clubs/'
     | '/admin/dev/'
     | '/coach/players/'
+    | '/coach/programs/'
+    | '/admin/dev/bsi/$userId'
     | '/admin/dev/challenges/$resultId'
     | '/admin/dev/results/$resultId'
     | '/admin/dev/sessions/$sessionId'
@@ -441,9 +656,11 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/challenge-history'
     | '/challenges'
+    | '/club-admin'
     | '/dashboard'
     | '/drills'
     | '/history'
+    | '/insights'
     | '/profile'
     | '/progress'
     | '/record'
@@ -454,19 +671,37 @@ export interface FileRouteTypes {
     | '/challenge-progress/$slug'
     | '/challenge-record/$slug'
     | '/challenge/$slug'
+    | '/diagnostics/head-scan'
     | '/drill/$slug'
+    | '/performance/$skill'
+    | '/practice/saved'
+    | '/practice/week'
     | '/record-draw/$slug'
     | '/sessions/$id'
+    | '/trainer/$id'
+    | '/training/$programId'
+    | '/training/tournament'
     | '/admin'
     | '/coach'
+    | '/performance'
     | '/sessions'
     | '/squad'
+    | '/trainer'
+    | '/training'
+    | '/admin/clubs/$clubId'
     | '/admin/users/$userId'
     | '/coach/players/$playerId'
+    | '/coach/programs/$programId'
+    | '/coach/programs/new'
     | '/squad/ladder/$slug'
     | '/squad/vs/$memberId'
+    | '/lovable/email/auth/preview'
+    | '/lovable/email/auth/webhook'
+    | '/admin/clubs'
     | '/admin/dev'
     | '/coach/players'
+    | '/coach/programs'
+    | '/admin/dev/bsi/$userId'
     | '/admin/dev/challenges/$resultId'
     | '/admin/dev/results/$resultId'
     | '/admin/dev/sessions/$sessionId'
@@ -481,10 +716,12 @@ export interface FileRouteTypes {
     | '/_authenticated/admin'
     | '/_authenticated/challenge-history'
     | '/_authenticated/challenges'
+    | '/_authenticated/club-admin'
     | '/_authenticated/coach'
     | '/_authenticated/dashboard'
     | '/_authenticated/drills'
     | '/_authenticated/history'
+    | '/_authenticated/insights'
     | '/_authenticated/profile'
     | '/_authenticated/progress'
     | '/_authenticated/record'
@@ -496,19 +733,37 @@ export interface FileRouteTypes {
     | '/_authenticated/challenge-progress/$slug'
     | '/_authenticated/challenge-record/$slug'
     | '/_authenticated/challenge/$slug'
+    | '/_authenticated/diagnostics/head-scan'
     | '/_authenticated/drill/$slug'
+    | '/_authenticated/performance/$skill'
+    | '/_authenticated/practice/saved'
+    | '/_authenticated/practice/week'
     | '/_authenticated/record-draw/$slug'
     | '/_authenticated/sessions/$id'
+    | '/_authenticated/trainer/$id'
+    | '/_authenticated/training/$programId'
+    | '/_authenticated/training/tournament'
     | '/_authenticated/admin/'
     | '/_authenticated/coach/'
+    | '/_authenticated/performance/'
     | '/_authenticated/sessions/'
     | '/_authenticated/squad/'
+    | '/_authenticated/trainer/'
+    | '/_authenticated/training/'
+    | '/_authenticated/admin/clubs/$clubId'
     | '/_authenticated/admin/users/$userId'
     | '/_authenticated/coach/players/$playerId'
+    | '/_authenticated/coach/programs/$programId'
+    | '/_authenticated/coach/programs/new'
     | '/_authenticated/squad/ladder/$slug'
     | '/_authenticated/squad/vs/$memberId'
+    | '/lovable/email/auth/preview'
+    | '/lovable/email/auth/webhook'
+    | '/_authenticated/admin/clubs/'
     | '/_authenticated/admin/dev/'
     | '/_authenticated/coach/players/'
+    | '/_authenticated/coach/programs/'
+    | '/_authenticated/admin/dev/bsi/$userId'
     | '/_authenticated/admin/dev/challenges/$resultId'
     | '/_authenticated/admin/dev/results/$resultId'
     | '/_authenticated/admin/dev/sessions/$sessionId'
@@ -521,6 +776,8 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  LovableEmailAuthPreviewRoute: typeof LovableEmailAuthPreviewRoute
+  LovableEmailAuthWebhookRoute: typeof LovableEmailAuthWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -588,6 +845,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProfileRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/insights': {
+      id: '/_authenticated/insights'
+      path: '/insights'
+      fullPath: '/insights'
+      preLoaderRoute: typeof AuthenticatedInsightsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/history': {
       id: '/_authenticated/history'
       path: '/history'
@@ -616,6 +880,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCoachRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/club-admin': {
+      id: '/_authenticated/club-admin'
+      path: '/club-admin'
+      fullPath: '/club-admin'
+      preLoaderRoute: typeof AuthenticatedClubAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/challenges': {
       id: '/_authenticated/challenges'
       path: '/challenges'
@@ -637,6 +908,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/training/': {
+      id: '/_authenticated/training/'
+      path: '/training'
+      fullPath: '/training/'
+      preLoaderRoute: typeof AuthenticatedTrainingIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/trainer/': {
+      id: '/_authenticated/trainer/'
+      path: '/trainer'
+      fullPath: '/trainer/'
+      preLoaderRoute: typeof AuthenticatedTrainerIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/squad/': {
       id: '/_authenticated/squad/'
       path: '/'
@@ -649,6 +934,13 @@ declare module '@tanstack/react-router' {
       path: '/sessions'
       fullPath: '/sessions/'
       preLoaderRoute: typeof AuthenticatedSessionsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/performance/': {
+      id: '/_authenticated/performance/'
+      path: '/performance'
+      fullPath: '/performance/'
+      preLoaderRoute: typeof AuthenticatedPerformanceIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/coach/': {
@@ -665,6 +957,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/training/tournament': {
+      id: '/_authenticated/training/tournament'
+      path: '/training/tournament'
+      fullPath: '/training/tournament'
+      preLoaderRoute: typeof AuthenticatedTrainingTournamentRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/$programId': {
+      id: '/_authenticated/training/$programId'
+      path: '/training/$programId'
+      fullPath: '/training/$programId'
+      preLoaderRoute: typeof AuthenticatedTrainingProgramIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/trainer/$id': {
+      id: '/_authenticated/trainer/$id'
+      path: '/trainer/$id'
+      fullPath: '/trainer/$id'
+      preLoaderRoute: typeof AuthenticatedTrainerIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/sessions/$id': {
       id: '/_authenticated/sessions/$id'
       path: '/sessions/$id'
@@ -679,11 +992,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRecordDrawSlugRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/practice/week': {
+      id: '/_authenticated/practice/week'
+      path: '/practice/week'
+      fullPath: '/practice/week'
+      preLoaderRoute: typeof AuthenticatedPracticeWeekRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/practice/saved': {
+      id: '/_authenticated/practice/saved'
+      path: '/practice/saved'
+      fullPath: '/practice/saved'
+      preLoaderRoute: typeof AuthenticatedPracticeSavedRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/performance/$skill': {
+      id: '/_authenticated/performance/$skill'
+      path: '/performance/$skill'
+      fullPath: '/performance/$skill'
+      preLoaderRoute: typeof AuthenticatedPerformanceSkillRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/drill/$slug': {
       id: '/_authenticated/drill/$slug'
       path: '/drill/$slug'
       fullPath: '/drill/$slug'
       preLoaderRoute: typeof AuthenticatedDrillSlugRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/diagnostics/head-scan': {
+      id: '/_authenticated/diagnostics/head-scan'
+      path: '/diagnostics/head-scan'
+      fullPath: '/diagnostics/head-scan'
+      preLoaderRoute: typeof AuthenticatedDiagnosticsHeadScanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/challenge/$slug': {
@@ -728,6 +1069,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminAnalyticsRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/coach/programs/': {
+      id: '/_authenticated/coach/programs/'
+      path: '/programs'
+      fullPath: '/coach/programs/'
+      preLoaderRoute: typeof AuthenticatedCoachProgramsIndexRouteImport
+      parentRoute: typeof AuthenticatedCoachRoute
+    }
     '/_authenticated/coach/players/': {
       id: '/_authenticated/coach/players/'
       path: '/players'
@@ -741,6 +1089,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/dev/'
       preLoaderRoute: typeof AuthenticatedAdminDevIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/clubs/': {
+      id: '/_authenticated/admin/clubs/'
+      path: '/clubs'
+      fullPath: '/admin/clubs/'
+      preLoaderRoute: typeof AuthenticatedAdminClubsIndexRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/lovable/email/auth/webhook': {
+      id: '/lovable/email/auth/webhook'
+      path: '/lovable/email/auth/webhook'
+      fullPath: '/lovable/email/auth/webhook'
+      preLoaderRoute: typeof LovableEmailAuthWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lovable/email/auth/preview': {
+      id: '/lovable/email/auth/preview'
+      path: '/lovable/email/auth/preview'
+      fullPath: '/lovable/email/auth/preview'
+      preLoaderRoute: typeof LovableEmailAuthPreviewRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_authenticated/squad/vs/$memberId': {
       id: '/_authenticated/squad/vs/$memberId'
@@ -756,6 +1125,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSquadLadderSlugRouteImport
       parentRoute: typeof AuthenticatedSquadRoute
     }
+    '/_authenticated/coach/programs/new': {
+      id: '/_authenticated/coach/programs/new'
+      path: '/programs/new'
+      fullPath: '/coach/programs/new'
+      preLoaderRoute: typeof AuthenticatedCoachProgramsNewRouteImport
+      parentRoute: typeof AuthenticatedCoachRoute
+    }
+    '/_authenticated/coach/programs/$programId': {
+      id: '/_authenticated/coach/programs/$programId'
+      path: '/programs/$programId'
+      fullPath: '/coach/programs/$programId'
+      preLoaderRoute: typeof AuthenticatedCoachProgramsProgramIdRouteImport
+      parentRoute: typeof AuthenticatedCoachRoute
+    }
     '/_authenticated/coach/players/$playerId': {
       id: '/_authenticated/coach/players/$playerId'
       path: '/players/$playerId'
@@ -768,6 +1151,13 @@ declare module '@tanstack/react-router' {
       path: '/users/$userId'
       fullPath: '/admin/users/$userId'
       preLoaderRoute: typeof AuthenticatedAdminUsersUserIdRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/clubs/$clubId': {
+      id: '/_authenticated/admin/clubs/$clubId'
+      path: '/clubs/$clubId'
+      fullPath: '/admin/clubs/$clubId'
+      preLoaderRoute: typeof AuthenticatedAdminClubsClubIdRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
     '/_authenticated/admin/dev/view/$userId': {
@@ -805,6 +1195,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminDevChallengesResultIdRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/admin/dev/bsi/$userId': {
+      id: '/_authenticated/admin/dev/bsi/$userId'
+      path: '/dev/bsi/$userId'
+      fullPath: '/admin/dev/bsi/$userId'
+      preLoaderRoute: typeof AuthenticatedAdminDevBsiUserIdRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
   }
 }
 
@@ -813,8 +1210,11 @@ interface AuthenticatedAdminRouteChildren {
   AuthenticatedAdminInvitationsRoute: typeof AuthenticatedAdminInvitationsRoute
   AuthenticatedAdminUserManagementRoute: typeof AuthenticatedAdminUserManagementRoute
   AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
+  AuthenticatedAdminClubsClubIdRoute: typeof AuthenticatedAdminClubsClubIdRoute
   AuthenticatedAdminUsersUserIdRoute: typeof AuthenticatedAdminUsersUserIdRoute
+  AuthenticatedAdminClubsIndexRoute: typeof AuthenticatedAdminClubsIndexRoute
   AuthenticatedAdminDevIndexRoute: typeof AuthenticatedAdminDevIndexRoute
+  AuthenticatedAdminDevBsiUserIdRoute: typeof AuthenticatedAdminDevBsiUserIdRoute
   AuthenticatedAdminDevChallengesResultIdRoute: typeof AuthenticatedAdminDevChallengesResultIdRoute
   AuthenticatedAdminDevResultsResultIdRoute: typeof AuthenticatedAdminDevResultsResultIdRoute
   AuthenticatedAdminDevSessionsSessionIdRoute: typeof AuthenticatedAdminDevSessionsSessionIdRoute
@@ -827,8 +1227,11 @@ const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
   AuthenticatedAdminInvitationsRoute: AuthenticatedAdminInvitationsRoute,
   AuthenticatedAdminUserManagementRoute: AuthenticatedAdminUserManagementRoute,
   AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
+  AuthenticatedAdminClubsClubIdRoute: AuthenticatedAdminClubsClubIdRoute,
   AuthenticatedAdminUsersUserIdRoute: AuthenticatedAdminUsersUserIdRoute,
+  AuthenticatedAdminClubsIndexRoute: AuthenticatedAdminClubsIndexRoute,
   AuthenticatedAdminDevIndexRoute: AuthenticatedAdminDevIndexRoute,
+  AuthenticatedAdminDevBsiUserIdRoute: AuthenticatedAdminDevBsiUserIdRoute,
   AuthenticatedAdminDevChallengesResultIdRoute:
     AuthenticatedAdminDevChallengesResultIdRoute,
   AuthenticatedAdminDevResultsResultIdRoute:
@@ -845,14 +1248,21 @@ const AuthenticatedAdminRouteWithChildren =
 interface AuthenticatedCoachRouteChildren {
   AuthenticatedCoachIndexRoute: typeof AuthenticatedCoachIndexRoute
   AuthenticatedCoachPlayersPlayerIdRoute: typeof AuthenticatedCoachPlayersPlayerIdRoute
+  AuthenticatedCoachProgramsProgramIdRoute: typeof AuthenticatedCoachProgramsProgramIdRoute
+  AuthenticatedCoachProgramsNewRoute: typeof AuthenticatedCoachProgramsNewRoute
   AuthenticatedCoachPlayersIndexRoute: typeof AuthenticatedCoachPlayersIndexRoute
+  AuthenticatedCoachProgramsIndexRoute: typeof AuthenticatedCoachProgramsIndexRoute
 }
 
 const AuthenticatedCoachRouteChildren: AuthenticatedCoachRouteChildren = {
   AuthenticatedCoachIndexRoute: AuthenticatedCoachIndexRoute,
   AuthenticatedCoachPlayersPlayerIdRoute:
     AuthenticatedCoachPlayersPlayerIdRoute,
+  AuthenticatedCoachProgramsProgramIdRoute:
+    AuthenticatedCoachProgramsProgramIdRoute,
+  AuthenticatedCoachProgramsNewRoute: AuthenticatedCoachProgramsNewRoute,
   AuthenticatedCoachPlayersIndexRoute: AuthenticatedCoachPlayersIndexRoute,
+  AuthenticatedCoachProgramsIndexRoute: AuthenticatedCoachProgramsIndexRoute,
 }
 
 const AuthenticatedCoachRouteWithChildren =
@@ -877,10 +1287,12 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
   AuthenticatedChallengeHistoryRoute: typeof AuthenticatedChallengeHistoryRoute
   AuthenticatedChallengesRoute: typeof AuthenticatedChallengesRoute
+  AuthenticatedClubAdminRoute: typeof AuthenticatedClubAdminRoute
   AuthenticatedCoachRoute: typeof AuthenticatedCoachRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDrillsRoute: typeof AuthenticatedDrillsRoute
   AuthenticatedHistoryRoute: typeof AuthenticatedHistoryRoute
+  AuthenticatedInsightsRoute: typeof AuthenticatedInsightsRoute
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedProgressRoute: typeof AuthenticatedProgressRoute
   AuthenticatedRecordRoute: typeof AuthenticatedRecordRoute
@@ -889,20 +1301,32 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChallengeProgressSlugRoute: typeof AuthenticatedChallengeProgressSlugRoute
   AuthenticatedChallengeRecordSlugRoute: typeof AuthenticatedChallengeRecordSlugRoute
   AuthenticatedChallengeSlugRoute: typeof AuthenticatedChallengeSlugRoute
+  AuthenticatedDiagnosticsHeadScanRoute: typeof AuthenticatedDiagnosticsHeadScanRoute
   AuthenticatedDrillSlugRoute: typeof AuthenticatedDrillSlugRoute
+  AuthenticatedPerformanceSkillRoute: typeof AuthenticatedPerformanceSkillRoute
+  AuthenticatedPracticeSavedRoute: typeof AuthenticatedPracticeSavedRoute
+  AuthenticatedPracticeWeekRoute: typeof AuthenticatedPracticeWeekRoute
   AuthenticatedRecordDrawSlugRoute: typeof AuthenticatedRecordDrawSlugRoute
   AuthenticatedSessionsIdRoute: typeof AuthenticatedSessionsIdRoute
+  AuthenticatedTrainerIdRoute: typeof AuthenticatedTrainerIdRoute
+  AuthenticatedTrainingProgramIdRoute: typeof AuthenticatedTrainingProgramIdRoute
+  AuthenticatedTrainingTournamentRoute: typeof AuthenticatedTrainingTournamentRoute
+  AuthenticatedPerformanceIndexRoute: typeof AuthenticatedPerformanceIndexRoute
   AuthenticatedSessionsIndexRoute: typeof AuthenticatedSessionsIndexRoute
+  AuthenticatedTrainerIndexRoute: typeof AuthenticatedTrainerIndexRoute
+  AuthenticatedTrainingIndexRoute: typeof AuthenticatedTrainingIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
   AuthenticatedChallengeHistoryRoute: AuthenticatedChallengeHistoryRoute,
   AuthenticatedChallengesRoute: AuthenticatedChallengesRoute,
+  AuthenticatedClubAdminRoute: AuthenticatedClubAdminRoute,
   AuthenticatedCoachRoute: AuthenticatedCoachRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDrillsRoute: AuthenticatedDrillsRoute,
   AuthenticatedHistoryRoute: AuthenticatedHistoryRoute,
+  AuthenticatedInsightsRoute: AuthenticatedInsightsRoute,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedProgressRoute: AuthenticatedProgressRoute,
   AuthenticatedRecordRoute: AuthenticatedRecordRoute,
@@ -912,10 +1336,20 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedChallengeProgressSlugRoute,
   AuthenticatedChallengeRecordSlugRoute: AuthenticatedChallengeRecordSlugRoute,
   AuthenticatedChallengeSlugRoute: AuthenticatedChallengeSlugRoute,
+  AuthenticatedDiagnosticsHeadScanRoute: AuthenticatedDiagnosticsHeadScanRoute,
   AuthenticatedDrillSlugRoute: AuthenticatedDrillSlugRoute,
+  AuthenticatedPerformanceSkillRoute: AuthenticatedPerformanceSkillRoute,
+  AuthenticatedPracticeSavedRoute: AuthenticatedPracticeSavedRoute,
+  AuthenticatedPracticeWeekRoute: AuthenticatedPracticeWeekRoute,
   AuthenticatedRecordDrawSlugRoute: AuthenticatedRecordDrawSlugRoute,
   AuthenticatedSessionsIdRoute: AuthenticatedSessionsIdRoute,
+  AuthenticatedTrainerIdRoute: AuthenticatedTrainerIdRoute,
+  AuthenticatedTrainingProgramIdRoute: AuthenticatedTrainingProgramIdRoute,
+  AuthenticatedTrainingTournamentRoute: AuthenticatedTrainingTournamentRoute,
+  AuthenticatedPerformanceIndexRoute: AuthenticatedPerformanceIndexRoute,
   AuthenticatedSessionsIndexRoute: AuthenticatedSessionsIndexRoute,
+  AuthenticatedTrainerIndexRoute: AuthenticatedTrainerIndexRoute,
+  AuthenticatedTrainingIndexRoute: AuthenticatedTrainingIndexRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
@@ -926,7 +1360,19 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  LovableEmailAuthPreviewRoute: LovableEmailAuthPreviewRoute,
+  LovableEmailAuthWebhookRoute: LovableEmailAuthWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

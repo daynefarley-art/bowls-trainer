@@ -15,7 +15,7 @@ import {
   type Drill,
   type Result,
 } from "@/lib/bowls";
-import { Download, Users, Activity, Dumbbell, TrendingUp, Star, Trophy, Mail, ShieldCheck, Wrench } from "lucide-react";
+import { Download, Users, Activity, Dumbbell, TrendingUp, Star, Trophy, Mail, ShieldCheck, Wrench, Building2 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/admin/")({
   component: AdminDashboard,
@@ -215,10 +215,23 @@ function AdminDashboard() {
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Invitations</p>
-              <p className="mt-1 font-display text-lg font-extrabold">Manage private beta access →</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Testers &amp; Invitations</p>
+              <p className="mt-1 font-display text-lg font-extrabold">Beta testers, install &amp; accounts →</p>
             </div>
             <Mail className="h-8 w-8 text-primary" />
+          </div>
+        </Link>
+
+        <Link
+          to="/admin/clubs"
+          className="block rounded-2xl bg-card p-4 bt-shadow-elevated active:scale-[0.99] transition"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Managed Clubs</p>
+              <p className="mt-1 font-display text-lg font-extrabold">White-label branding &amp; squads →</p>
+            </div>
+            <Building2 className="h-8 w-8 text-primary" />
           </div>
         </Link>
 

@@ -35,12 +35,15 @@ export function ChallengeResultMeta({
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("challenge_results")
-        .select("score")
+        .select("score, breakdown")
         .eq("challenge_id", challenge.id)
         .eq("user_id", userId)
         .order("score", { ascending: false });
       if (error) throw error;
-      const scores = ((data ?? []) as { score: number }[]).map((r) => r.score);
+      let rows = ((data ?? []) as { score: number; breakdown: any }[]);
+      // Slimed re-scored 2026-07-18. Only compare against same-scoring attempts.
+      if (challenge.slug === "slimed") rows = rows.filter((r) => r.breakdown?.max_score === 80);
+      const scores = rows.map((r) => r.score);
       // Exclude the just-saved score (if present) by removing one instance
       const idx = scores.indexOf(score);
       if (idx >= 0) scores.splice(idx, 1);

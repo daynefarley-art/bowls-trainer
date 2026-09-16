@@ -1,4 +1,7 @@
-export type ScoringCategory = { key: string; label: string; points: number };
+import { measureVersionOf, type MeasureVersion } from "@/lib/measurement";
+import { computeBSI, aggregateOverallBSI } from "@/lib/bsi";
+
+export type ScoringCategory = { key: string; label: string; points: number; note?: string };
 export type Drill = {
   id: string;
   slug: string;
@@ -67,8 +70,23 @@ function startOfMonth(d: Date): Date {
   return x;
 }
 
+/**
+ * Per-activity active-time cap. A single drill/challenge cannot legitimately
+ * exceed this many minutes of active practice; values above this indicate
+ * corrupt wall-clock durations (paused/backgrounded overnight etc.) and are
+ * clamped so weekly/lifetime totals stay truthful.
+ */
+export const MAX_ACTIVITY_MINUTES = 60;
+
+export function clampActivityMinutes(m: number | null | undefined): number {
+  if (!m || m <= 0) return 0;
+  return Math.min(m, MAX_ACTIVITY_MINUTES);
+}
+
 export function durationsFor(results: Pick<Result, "played_at" | "duration_minutes">[]) {
-  return results.filter((r) => typeof r.duration_minutes === "number" && r.duration_minutes! > 0);
+  return results
+    .filter((r) => typeof r.duration_minutes === "number" && r.duration_minutes! > 0)
+    .map((r) => ({ ...r, duration_minutes: clampActivityMinutes(r.duration_minutes) }));
 }
 
 export function minutesInRange(
@@ -250,12 +268,16 @@ export function drawBSIFromPercentage(pct: number): number {
 
 export function bsiFromPercentage(pct: number, drillSlug?: string | null): number {
   if (drillSlug && isDrawDrillSlug(drillSlug)) return drawBSIFromPercentage(pct);
-  return Math.round(Math.max(0, Math.min(100, pct)) * 10) / 10;
+  return computeBSI(drillSlug, null, pct);
 }
 
 /**
- * Preferred BSI helper for draw drills — uses the per-bowl breakdown when
- * available and falls back to the percentage-based curve otherwise.
+ * Canonical BSI for a saved result.
+ *
+ * This is a thin adapter over the single BSI engine in `@/lib/bsi`.
+ * Draw drills keep their established per-bowl curve (the engine's
+ * baseline); every other skill is normalised through the same
+ * outcome + difficulty model. No BSI mathematics lives here.
  */
 export function bsiFromBreakdown(
   drillSlug: string | null | undefined,
@@ -273,13 +295,18 @@ export function bsiFromBreakdown(
     }
     return drawBSIFromPercentage(pct);
   }
-  return Math.round(Math.max(0, Math.min(100, pct)) * 10) / 10;
+  return computeBSI(drillSlug, breakdown, pct);
 }
 
+
 /**
- * Weighted overall BSI. Each drill contributes its average percentage,
+ * Weighted overall BSI. Each drill contributes its mean result BSI,
  * weighted by drill.weight. Drills without recorded results are excluded
  * and remaining weights are renormalised.
+ *
+ * Aggregation (including the low-sample confidence shrinkage that stops
+ * a single first attempt at a hard skill from dominating the index)
+ * lives in the canonical engine, `@/lib/bsi`.
  */
 export function overallBSI(
   results: Pick<Result, "drill_id" | "percentage" | "bsi">[],
@@ -293,18 +320,20 @@ export function overallBSI(
     arr.push(v);
     byDrill.set(r.drill_id, arr);
   }
-  let totalWeight = 0;
-  let weighted = 0;
-  for (const d of drills) {
-    const vals = byDrill.get(d.id);
-    if (!vals?.length) continue;
-    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-    weighted += avg * Number(d.weight);
-    totalWeight += Number(d.weight);
-  }
-  if (totalWeight === 0) return 0;
-  return Math.round((weighted / totalWeight) * 10) / 10;
+  return aggregateOverallBSI(
+    drills.flatMap((d) => {
+      const vals = byDrill.get(d.id);
+      if (!vals?.length) return [];
+      return [{
+        drillId: d.id,
+        weight: Number(d.weight),
+        mean: vals.reduce((a, b) => a + b, 0) / vals.length,
+        count: vals.length,
+      }];
+    }),
+  );
 }
+
 
 
 export type BSILevel = {
@@ -365,6 +394,7 @@ const DRILL_CATEGORY: Record<string, CategoryKey> = {
   "short-draw": "draw",
   "medium-draw": "draw",
   "long-draw": "draw",
+  "lead-drill": "draw",
   "weight-control-ladder": "weight",
   "upshot-drill": "conversion",
   "running-shot-drill": "conversion",
@@ -377,6 +407,7 @@ export const DRAW_DRILL_SLUGS = [
   "short-draw",
   "medium-draw",
   "long-draw",
+  "lead-drill", // Lead Drill — two jacks, same draw scoring categories
   "weight-control-ladder", // Length Control Drill — same draw scoring categories
 ] as const;
 export type DrawDrillSlug = (typeof DRAW_DRILL_SLUGS)[number];
@@ -398,13 +429,20 @@ export type BowlDetail = {
   y?: number;
   distance?: number;
   drill_length?: DrawLength;
+  /** How the coordinate was entered. Diagnostic only — scoring is identical. */
+  entry_method?: "visual_target" | "head_scan";
+  /**
+   * Internal Head Scan measurement (edge-to-edge, millimetres). Diagnostic and
+   * scoring precision only — never rendered to the user, who sees mats.
+   */
+  gap_mm?: number;
 };
 
 export function drawLengthForSlug(slug: string | null | undefined): DrawLength | null {
   if (slug === "short-draw") return "short";
   if (slug === "medium-draw") return "medium";
   if (slug === "long-draw") return "long";
-  // weight-control-ladder cycles through all lengths per bowl — no single length
+  // weight-control-ladder and lead-drill cycle lengths per bowl — no single length
   return null;
 }
 
@@ -464,6 +502,17 @@ export function classifyWeight(y: number): WeightClass {
 }
 
 export type VisualTapPoint = {
+  /**
+   * Measurement version of the result this bowl came from.
+   * 1 = legacy (absent measure_v), 2 = edge-to-edge physical model.
+   *
+   * V1 and V2 share the SAME mat-unit coordinate space and the SAME band
+   * boundaries (0.5 / 1.0 / 2.0 mats), so every geometry-derived analytic
+   * below produces byte-identical output for legacy data. This field exists so
+   * that any future V2-only interpretation can branch explicitly instead of
+   * silently reinterpreting legacy coordinates.
+   */
+  measure_v: MeasureVersion;
   x: number;
   y: number;
   distance: number;
@@ -487,9 +536,11 @@ export function collectVisualTaps(
     const bd = (r.breakdown ?? {}) as Record<string, unknown>;
     const raw = bd.bowls;
     if (!Array.isArray(raw)) continue;
+    const measure_v = measureVersionOf(bd);
     for (const b of raw as BowlDetail[]) {
       if (typeof b.x !== "number" || typeof b.y !== "number") continue;
       out.push({
+        measure_v,
         x: b.x,
         y: b.y,
         distance: typeof b.distance === "number" ? b.distance : Math.sqrt(b.x * b.x + b.y * b.y),
@@ -1150,3 +1201,1063 @@ export function whatIfMissesConverted(
   return { deltaAvgPoints, deltaBSI };
 }
 
+// --- Diagnostic helpers: BSI decomposition & per-session impact ---
+
+export type BSIDrillContribution = {
+  drill_id: string;
+  drill_name: string;
+  category: CategoryKey | null;
+  categoryLabel: string | null;
+  n: number;
+  avg: number;
+  weight: number;
+  weightShare: number;
+  contribution: number;
+};
+
+export type BSIBreakdown = {
+  rows: BSIDrillContribution[];
+  overall: number;
+  activeWeight: number;
+  totalWeight: number;
+  totalResults: number;
+};
+
+/** Decompose overall BSI into per-drill contributions (matches overallBSI). */
+export function bsiBreakdown(
+  results: Pick<Result, "drill_id" | "percentage" | "bsi">[],
+  drills: Pick<Drill, "id" | "slug" | "weight" | "name">[],
+): BSIBreakdown {
+  const byDrill = new Map<string, number[]>();
+  for (const r of results) {
+    const v = r.bsi != null ? Number(r.bsi) : r.percentage != null ? Number(r.percentage) : null;
+    if (v == null) continue;
+    const arr = byDrill.get(r.drill_id) ?? [];
+    arr.push(v);
+    byDrill.set(r.drill_id, arr);
+  }
+  let activeWeight = 0;
+  let totalWeight = 0;
+  const raw: Array<Omit<BSIDrillContribution, "weightShare" | "contribution">> = [];
+  for (const d of drills) {
+    totalWeight += Number(d.weight);
+    const vals = byDrill.get(d.id);
+    if (!vals?.length) continue;
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const cat = categoryForDrill(d.slug);
+    activeWeight += Number(d.weight);
+    raw.push({
+      drill_id: d.id,
+      drill_name: d.name,
+      category: cat,
+      categoryLabel: cat ? CATEGORY_LABELS[cat] : null,
+      n: vals.length,
+      avg: Math.round(avg * 10) / 10,
+      weight: Number(d.weight),
+    });
+  }
+  const rows: BSIDrillContribution[] = raw.map((r) => {
+    const share = activeWeight ? r.weight / activeWeight : 0;
+    return { ...r, weightShare: share, contribution: Math.round(r.avg * share * 10) / 10 };
+  });
+  const overall = rows.reduce((s, r) => s + r.avg * r.weightShare, 0);
+  return {
+    rows: rows.sort((a, b) => b.contribution - a.contribution),
+    overall: Math.round(overall * 10) / 10,
+    activeWeight,
+    totalWeight,
+    totalResults: results.length,
+  };
+}
+
+export type BSISessionImpact = {
+  session_id: string | null;
+  played_at: string;
+  drills: { drill_name: string; bsi: number }[];
+  sessionBSI: number;
+  overallBefore: number;
+  overallAfter: number;
+  delta: number;
+  cumulativeResults: number;
+};
+
+/** For each session (grouped by session_id, or single-result when null),
+ *  compute session BSI and the overall BSI before/after that session's
+ *  results were included. Returns newest-first. */
+export function sessionImpacts(
+  results: Array<Pick<Result, "id" | "drill_id" | "drill_name" | "percentage" | "bsi" | "played_at"> & { session_id?: string | null }>,
+  drills: Pick<Drill, "id" | "slug" | "weight" | "name">[],
+): BSISessionImpact[] {
+  const chrono = [...results].sort(
+    (a, b) => new Date(a.played_at).getTime() - new Date(b.played_at).getTime(),
+  );
+  const groups = new Map<string, typeof chrono>();
+  const order: string[] = [];
+  for (const r of chrono) {
+    const key = r.session_id ?? `solo::${r.id}`;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      order.push(key);
+    }
+    groups.get(key)!.push(r);
+  }
+  const acc: typeof chrono = [];
+  const out: BSISessionImpact[] = [];
+  for (const key of order) {
+    const g = groups.get(key)!;
+    const overallBefore = overallBSI(acc, drills);
+    for (const r of g) acc.push(r);
+    const overallAfter = overallBSI(acc, drills);
+    const bsis = g
+      .map((r) => (r.bsi != null ? Number(r.bsi) : r.percentage != null ? Number(r.percentage) : null))
+      .filter((v): v is number => v != null);
+    const sessionBSI = bsis.length ? bsis.reduce((a, b) => a + b, 0) / bsis.length : 0;
+    out.push({
+      session_id: g[0].session_id ?? null,
+      played_at: g[0].played_at,
+      drills: g.map((r) => ({
+        drill_name: r.drill_name ?? "—",
+        bsi: r.bsi != null ? Number(r.bsi) : Number(r.percentage ?? 0),
+      })),
+      sessionBSI: Math.round(sessionBSI * 10) / 10,
+      overallBefore: Math.round(overallBefore * 10) / 10,
+      overallAfter: Math.round(overallAfter * 10) / 10,
+      delta: Math.round((overallAfter - overallBefore) * 10) / 10,
+      cumulativeResults: acc.length,
+    });
+  }
+  return out.reverse();
+}
+
+// ============================================================================
+// PERFORMANCE DASHBOARD 2.0 — coaching-focused helpers
+// Deliberately hides weightings/formulas from the UI. Consumers should only
+// surface the values below and never the underlying weight math.
+// ============================================================================
+
+export type SkillAreaKey =
+  | "draw"
+  | "weight"
+  | "upshots"
+  | "running"
+  | "driving"
+  | "jack";
+
+export const SKILL_AREA_LABELS: Record<SkillAreaKey, string> = {
+  draw: "Draw Bowling",
+  weight: "Weight Control",
+  upshots: "Upshots",
+  running: "Running Shots",
+  driving: "Driving",
+  jack: "Jack Delivery",
+};
+
+const DRILL_SKILL_AREA: Record<string, SkillAreaKey> = {
+  "short-draw": "draw",
+  "medium-draw": "draw",
+  "long-draw": "draw",
+  "lead-drill": "draw",
+  "weight-control-ladder": "weight",
+  "keep-it-up": "weight",
+  "upshot-drill": "upshots",
+  "running-shot-drill": "running",
+  "drive-accuracy": "driving",
+  "jack-in-ditch": "driving",
+  "jack-delivery-accuracy": "jack",
+};
+
+export function skillAreaForDrill(slug: string): SkillAreaKey | null {
+  return DRILL_SKILL_AREA[slug] ?? null;
+}
+
+type MinResult = Pick<Result, "drill_id" | "percentage" | "bsi" | "played_at">;
+type MinDrill = Pick<Drill, "id" | "slug" | "weight" | "name">;
+
+function resultValue(r: Pick<Result, "bsi" | "percentage">): number | null {
+  const v = r.bsi != null ? Number(r.bsi) : r.percentage != null ? Number(r.percentage) : null;
+  return Number.isFinite(v as number) ? (v as number) : null;
+}
+
+function weightedAvgByDrill(
+  results: MinResult[],
+  drills: MinDrill[],
+): number | null {
+  const byDrill = new Map<string, number[]>();
+  for (const r of results) {
+    const v = resultValue(r);
+    if (v == null) continue;
+    const arr = byDrill.get(r.drill_id) ?? [];
+    arr.push(v);
+    byDrill.set(r.drill_id, arr);
+  }
+  let w = 0, tot = 0;
+  for (const d of drills) {
+    const vals = byDrill.get(d.id);
+    if (!vals?.length) continue;
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    w += avg * Number(d.weight);
+    tot += Number(d.weight);
+  }
+  if (!tot) return null;
+  return Math.round((w / tot) * 10) / 10;
+}
+
+export type SkillAreaScore = {
+  key: SkillAreaKey;
+  label: string;
+  score: number | null;
+  trend: TrendStatus | null;
+  sessions: number;
+};
+
+/** Skill-area BSI (weighted average of contributing drills) + 30d vs older trend. */
+export function skillAreaScores(
+  results: MinResult[],
+  drills: MinDrill[],
+): SkillAreaScore[] {
+  const drillsByArea = new Map<SkillAreaKey, MinDrill[]>();
+  for (const d of drills) {
+    const a = skillAreaForDrill(d.slug);
+    if (!a) continue;
+    const arr = drillsByArea.get(a) ?? [];
+    arr.push(d);
+    drillsByArea.set(a, arr);
+  }
+  const areaKeys = Object.keys(SKILL_AREA_LABELS) as SkillAreaKey[];
+  const now = Date.now();
+  return areaKeys.map((k) => {
+    const areaDrills = drillsByArea.get(k) ?? [];
+    const areaDrillIds = new Set(areaDrills.map((d) => d.id));
+    const areaResults = results.filter((r) => areaDrillIds.has(r.drill_id));
+    const score = weightedAvgByDrill(areaResults, areaDrills);
+    let trend: TrendStatus | null = null;
+    if (areaResults.length >= 3) {
+      const recent = areaResults.filter((r) => now - new Date(r.played_at).getTime() <= 30 * 86_400_000);
+      const older = areaResults.filter((r) => {
+        const t = now - new Date(r.played_at).getTime();
+        return t > 30 * 86_400_000 && t <= 90 * 86_400_000;
+      });
+      const rAvg = weightedAvgByDrill(recent, areaDrills);
+      const oAvg = weightedAvgByDrill(older, areaDrills);
+      if (rAvg != null && oAvg != null) trend = trendStatus(Math.round((rAvg - oAvg) * 10) / 10);
+      else if (rAvg != null && score != null) trend = trendStatus(Math.round((rAvg - score) * 10) / 10);
+    }
+    return { key: k, label: SKILL_AREA_LABELS[k], score, trend, sessions: areaResults.length };
+  });
+}
+
+// ---------- Form (5 states) ----------
+
+export type FormState = "Hot" | "Improving" | "Stable" | "Declining" | "Cold";
+
+export type FormReading = {
+  label: FormState;
+  delta: number;
+  sample: number;
+};
+
+export function currentForm(results: MinResult[]): FormReading | null {
+  const vals = results
+    .slice()
+    .sort((a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime())
+    .map((r) => resultValue(r))
+    .filter((v): v is number => v != null);
+  if (vals.length < 3) return null;
+  const recent = vals.slice(0, 5);
+  const rest = vals.slice(5, 15);
+  const baseline = rest.length ? rest : vals;
+  const rAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const bAvg = baseline.reduce((a, b) => a + b, 0) / baseline.length;
+  const delta = Math.round((rAvg - bAvg) * 10) / 10;
+  let label: FormState;
+  if (delta >= 6) label = "Hot";
+  else if (delta >= 2) label = "Improving";
+  else if (delta > -2) label = "Stable";
+  else if (delta > -6) label = "Declining";
+  else label = "Cold";
+  return { label, delta, sample: recent.length };
+}
+
+// ---------- Consistency ----------
+
+export type ConsistencyReading = {
+  score: number;
+  label: "Excellent" | "Strong" | "Steady" | "Variable" | "Erratic";
+  sample: number;
+};
+
+export function consistencyRating(results: MinResult[]): ConsistencyReading | null {
+  const vals = results
+    .slice()
+    .sort((a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime())
+    .map((r) => resultValue(r))
+    .filter((v): v is number => v != null)
+    .slice(0, 15);
+  if (vals.length < 3) return null;
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+  const sd = Math.sqrt(variance);
+  const score = Math.max(0, Math.min(100, Math.round(100 - sd * 4)));
+  let label: ConsistencyReading["label"];
+  if (score >= 85) label = "Excellent";
+  else if (score >= 70) label = "Strong";
+  else if (score >= 55) label = "Steady";
+  else if (score >= 40) label = "Variable";
+  else label = "Erratic";
+  return { score, label, sample: vals.length };
+}
+
+// ---------- Personal bests ----------
+
+export type PersonalBests = {
+  overall: number | null;
+  drawRating: number | null;
+  bestConsistency: number | null;
+  improvingStreakWeeks: number;
+};
+
+export function personalBests(
+  results: MinResult[],
+  drills: MinDrill[],
+): PersonalBests {
+  const overall = personalBestBSI(results as Result[]);
+  const drawDrillIds = new Set(
+    drills.filter((d) => skillAreaForDrill(d.slug) === "draw").map((d) => d.id),
+  );
+  const drawResults = results.filter((r) => drawDrillIds.has(r.drill_id));
+  const drawVals = drawResults.map(resultValue).filter((v): v is number => v != null);
+  const drawRating = drawVals.length ? Math.round(Math.max(...drawVals) * 10) / 10 : null;
+
+  let bestC: number | null = null;
+  const sorted = results
+    .slice()
+    .sort((a, b) => new Date(a.played_at).getTime() - new Date(b.played_at).getTime());
+  for (let i = 15; i <= sorted.length; i++) {
+    const c = consistencyRating(sorted.slice(i - 15, i));
+    if (c && (bestC == null || c.score > bestC)) bestC = c.score;
+  }
+
+  const byWeek = new Map<number, number[]>();
+  for (const r of sorted) {
+    const v = resultValue(r);
+    if (v == null) continue;
+    const wk = startOfWeek(new Date(r.played_at)).getTime();
+    const arr = byWeek.get(wk) ?? [];
+    arr.push(v);
+    byWeek.set(wk, arr);
+  }
+  const weekKeys = Array.from(byWeek.keys()).sort((a, b) => a - b);
+  let streak = 0, best = 0, prev: number | null = null;
+  for (const k of weekKeys) {
+    const arr = byWeek.get(k)!;
+    const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+    if (prev == null || avg >= prev - 0.5) streak += 1;
+    else streak = 1;
+    if (streak > best) best = streak;
+    prev = avg;
+  }
+
+  return { overall, drawRating, bestConsistency: bestC, improvingStreakWeeks: best };
+}
+
+// ---------- Weekly BSI movement ----------
+
+export type BSIMovement = {
+  previous: number | null;
+  current: number;
+  weeklyChange: number | null;
+  drivers: string[];
+};
+
+export function bsiMovement(
+  results: MinResult[],
+  drills: MinDrill[],
+): BSIMovement {
+  const now = Date.now();
+  const current = overallBSI(results as Result[], drills);
+  const weekAgo = now - 7 * 86_400_000;
+  const priorResults = results.filter((r) => new Date(r.played_at).getTime() <= weekAgo);
+  const previous = priorResults.length ? overallBSI(priorResults as Result[], drills) : null;
+  const weeklyChange = previous == null ? null : Math.round((current - previous) * 10) / 10;
+
+  const drivers: string[] = [];
+  if (weeklyChange != null && Math.abs(weeklyChange) >= 0.2) {
+    const areas = skillAreaScores(results as Result[], drills);
+    for (const a of areas) {
+      if (a.score == null) continue;
+      const areaDrillIds = new Set(
+        drills.filter((d) => skillAreaForDrill(d.slug) === a.key).map((d) => d.id),
+      );
+      const recent = results.filter(
+        (r) => areaDrillIds.has(r.drill_id) && new Date(r.played_at).getTime() >= weekAgo,
+      );
+      if (recent.length < 1) continue;
+      const rVals = recent.map(resultValue).filter((v): v is number => v != null);
+      if (!rVals.length) continue;
+      const rAvg = rVals.reduce((s, v) => s + v, 0) / rVals.length;
+      const diff = rAvg - a.score;
+      if (weeklyChange > 0 && diff >= 2) drivers.push(`stronger ${a.label.toLowerCase()}`);
+      if (weeklyChange < 0 && diff <= -2) drivers.push(`weaker ${a.label.toLowerCase()}`);
+    }
+  }
+  return { previous, current, weeklyChange, drivers: drivers.slice(0, 3) };
+}
+
+// ---------- Practice priorities ----------
+
+export type PracticePriority = {
+  key: SkillAreaKey;
+  label: string;
+  stars: 1 | 2 | 3 | 4 | 5;
+  reason: string;
+};
+
+export function practicePriorities(
+  results: MinResult[],
+  drills: MinDrill[],
+): PracticePriority[] {
+  const areas = skillAreaScores(results as Result[], drills);
+  const scored = areas.map((a) => {
+    let priority = 0;
+    if (a.score == null) priority = 60;
+    else priority = Math.max(0, 90 - a.score);
+    if (a.trend === "Declining") priority += 15;
+    if (a.trend === "Improving") priority -= 8;
+    if (a.sessions < 3) priority += 5;
+    return { area: a, priority };
+  });
+  const sorted = scored.slice().sort((a, b) => b.priority - a.priority);
+  const max = sorted[0]?.priority ?? 1;
+  return sorted.map((s) => {
+    const ratio = max > 0 ? s.priority / max : 0;
+    const stars = (Math.max(1, Math.min(5, Math.round(ratio * 5))) as 1 | 2 | 3 | 4 | 5);
+    let reason: string;
+    if (s.area.score == null) reason = "Not enough data yet — record a session.";
+    else if (s.area.trend === "Declining") reason = "Recent form has dipped.";
+    else if (s.area.score < 55) reason = "Currently your weakest skill area.";
+    else if (s.area.score < 70) reason = "Room to grow here.";
+    else reason = "Maintenance — keep it sharp.";
+    return { key: s.area.key, label: s.area.label, stars, reason };
+  });
+}
+
+// ---------- Recommended drill (v2) ----------
+
+export type RecommendedDrillV2 = {
+  drill: Drill;
+  skillArea: SkillAreaKey;
+  skillAreaLabel: string;
+  estimatedMinutes: number;
+  reason: string;
+};
+
+const DEFAULT_DRILL_MINUTES = 15;
+
+export function recommendedDrillV2(
+  results: MinResult[],
+  drills: Drill[],
+): RecommendedDrillV2 | null {
+  if (!drills.length) return null;
+  const priorities = practicePriorities(results, drills);
+  const now = Date.now();
+  const recentDrillIds = new Map<string, number>();
+  for (const r of results) {
+    const t = new Date(r.played_at).getTime();
+    const prev = recentDrillIds.get(r.drill_id) ?? 0;
+    if (t > prev) recentDrillIds.set(r.drill_id, t);
+  }
+  for (const p of priorities) {
+    const candidates = drills.filter((d) => skillAreaForDrill(d.slug) === p.key);
+    if (!candidates.length) continue;
+    const ranked = candidates
+      .map((d) => {
+        const drillResults = results.filter((r) => r.drill_id === d.id);
+        const vals = drillResults.map(resultValue).filter((v): v is number => v != null);
+        const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        const lastAt = recentDrillIds.get(d.id) ?? 0;
+        const daysSince = lastAt ? (now - lastAt) / 86_400_000 : 9999;
+        return { d, avg: avg ?? -1, daysSince, sessions: vals.length };
+      })
+      .sort((a, b) => {
+        if ((a.sessions === 0) !== (b.sessions === 0)) return a.sessions === 0 ? -1 : 1;
+        if (a.daysSince >= 3 && b.daysSince < 3) return -1;
+        if (b.daysSince >= 3 && a.daysSince < 3) return 1;
+        return a.avg - b.avg;
+      });
+    const pick = ranked[0].d;
+    return {
+      drill: pick,
+      skillArea: p.key,
+      skillAreaLabel: p.label,
+      estimatedMinutes: DEFAULT_DRILL_MINUTES,
+      reason:
+        p.stars >= 4
+          ? "This drill currently offers the greatest opportunity to improve your overall performance."
+          : "A focused session here will nudge your overall game forward.",
+    };
+  }
+  return null;
+}
+
+// ---------- Coach summary ----------
+
+export function coachSummary(
+  results: MinResult[],
+  drills: Drill[],
+): string {
+  if (!results.length) {
+    return "Record a few drill sessions and your coach summary will appear here — the more data, the sharper the advice.";
+  }
+  const overall = overallBSI(results as Result[], drills);
+  const level = bsiLevel(overall).label.toLowerCase();
+  const areas = skillAreaScores(results as Result[], drills);
+  const rated = areas.filter((a) => a.score != null) as (SkillAreaScore & { score: number })[];
+  const strongest = rated.slice().sort((a, b) => b.score - a.score)[0];
+  const weakest = rated.slice().sort((a, b) => a.score - b.score)[0];
+  const form = currentForm(results);
+  const rec = recommendedDrillV2(results, drills);
+
+  const parts: string[] = [];
+  parts.push(
+    overall >= 70
+      ? `You're bowling at a ${level} level and the fundamentals are holding up well.`
+      : overall >= 55
+        ? `You're settling into a solid ${level} game.`
+        : `You're building the foundations — every recorded session is sharpening your ${level} game.`,
+  );
+  if (strongest) parts.push(`Your ${strongest.label.toLowerCase()} remains a strength.`);
+  if (weakest && (!strongest || weakest.key !== strongest.key)) {
+    if (weakest.trend === "Declining") parts.push(`Recent ${weakest.label.toLowerCase()} has slipped a little.`);
+    else parts.push(`Your ${weakest.label.toLowerCase()} is the biggest area to improve.`);
+  }
+  if (form) {
+    if (form.label === "Hot") parts.push("Form is red hot — keep riding the wave.");
+    else if (form.label === "Improving") parts.push("Form is trending up.");
+    else if (form.label === "Declining") parts.push("Form has cooled recently — a focused session will help reset.");
+    else if (form.label === "Cold") parts.push("Recent form has dipped — start with a short, achievable session to rebuild rhythm.");
+  }
+  if (rec) parts.push(`A focused ${rec.drill.name} session this week is likely to have the biggest impact.`);
+  return parts.join(" ");
+}
+
+// ---------- Skill detail ----------
+
+export type SkillDrillStat = {
+  drill_id: string;
+  drill_name: string;
+  latest: number | null;
+  avg30d: number | null;
+  lifetimeAvg: number | null;
+  lifetimeBest: number | null;
+  sessions: number;
+};
+
+export type SkillDetail = {
+  key: SkillAreaKey;
+  label: string;
+  overall: number | null;
+  form: FormReading | null;
+  consistency: ConsistencyReading | null;
+  drills: SkillDrillStat[];
+  handSplit: { forehand: number | null; backhand: number | null } | null;
+  insight: string;
+};
+
+function drillStat(drill: MinDrill, results: MinResult[]): SkillDrillStat {
+  const drillResults = results
+    .filter((r) => r.drill_id === drill.id)
+    .sort((a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime());
+  const vals = drillResults.map(resultValue).filter((v): v is number => v != null);
+  const now = Date.now();
+  const recent = drillResults.filter((r) => now - new Date(r.played_at).getTime() <= 30 * 86_400_000);
+  const recentVals = recent.map(resultValue).filter((v): v is number => v != null);
+  return {
+    drill_id: drill.id,
+    drill_name: drill.name,
+    latest: vals.length ? Math.round(vals[0] * 10) / 10 : null,
+    avg30d: recentVals.length ? Math.round((recentVals.reduce((a, b) => a + b, 0) / recentVals.length) * 10) / 10 : null,
+    lifetimeAvg: vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : null,
+    lifetimeBest: vals.length ? Math.round(Math.max(...vals) * 10) / 10 : null,
+    sessions: vals.length,
+  };
+}
+
+export function skillDetail(
+  key: SkillAreaKey,
+  results: (MinResult & { breakdown?: unknown })[],
+  drills: Drill[],
+): SkillDetail {
+  const areaDrills = drills.filter((d) => skillAreaForDrill(d.slug) === key);
+  const areaDrillIds = new Set(areaDrills.map((d) => d.id));
+  const areaResults = results.filter((r) => areaDrillIds.has(r.drill_id));
+  const overall = weightedAvgByDrill(areaResults, areaDrills);
+  const form = currentForm(areaResults);
+  const consistency = consistencyRating(areaResults);
+  const drillStats = areaDrills.map((d) => drillStat(d, areaResults));
+
+  let handSplit: SkillDetail["handSplit"] = null;
+  if (key === "draw") {
+    const drawIds = new Set(areaDrills.filter((d) => isDrawDrillSlug(d.slug)).map((d) => d.id));
+    let fhP = 0, fhN = 0, bhP = 0, bhN = 0;
+    const MAX = 5;
+    for (const r of areaResults) {
+      if (!drawIds.has(r.drill_id)) continue;
+      const bd = (r.breakdown ?? {}) as Record<string, unknown>;
+      const raw = bd.bowls;
+      if (!Array.isArray(raw)) continue;
+      for (const b of raw as BowlDetail[]) {
+        if (b.hand === "forehand") { fhP += b.points; fhN += 1; }
+        else if (b.hand === "backhand") { bhP += b.points; bhN += 1; }
+      }
+    }
+    handSplit = {
+      forehand: fhN ? Math.round((fhP / (fhN * MAX)) * 1000) / 10 : null,
+      backhand: bhN ? Math.round((bhP / (bhN * MAX)) * 1000) / 10 : null,
+    };
+  }
+
+  let insight = "";
+  if (!areaResults.length) {
+    insight = `Record a session in ${SKILL_AREA_LABELS[key]} to unlock diagnostics and coaching guidance.`;
+  } else {
+    const bits: string[] = [];
+    if (overall != null && overall >= 75) bits.push(`Your ${SKILL_AREA_LABELS[key].toLowerCase()} remains one of your stronger areas.`);
+    else if (overall != null && overall >= 60) bits.push(`Your ${SKILL_AREA_LABELS[key].toLowerCase()} is steady and reliable.`);
+    else if (overall != null) bits.push(`Your ${SKILL_AREA_LABELS[key].toLowerCase()} has room to grow.`);
+    if (form?.label === "Declining" || form?.label === "Cold") bits.push("Recent sessions show reduced consistency here.");
+    else if (form?.label === "Improving" || form?.label === "Hot") bits.push("Recent sessions show real momentum — keep it going.");
+    if (handSplit) {
+      const { forehand: fh, backhand: bh } = handSplit;
+      if (fh != null && bh != null && Math.abs(fh - bh) >= 8) {
+        bits.push(fh > bh
+          ? "Backhand accuracy trails your forehand — that's the fastest path to lift your draw game."
+          : "Forehand accuracy trails your backhand — sharpening the forehand will lift your overall draw game.");
+      }
+    }
+    const rated = drillStats.filter((d) => d.lifetimeAvg != null);
+    if (rated.length >= 2) {
+      const weak = rated.slice().sort((a, b) => (a.lifetimeAvg ?? 0) - (b.lifetimeAvg ?? 0))[0];
+      bits.push(`Improving ${weak.drill_name} accuracy is currently the best opportunity here.`);
+    }
+    insight = bits.join(" ");
+  }
+
+  return {
+    key,
+    label: SKILL_AREA_LABELS[key],
+    overall: overall != null ? Math.round(overall * 10) / 10 : null,
+    form,
+    consistency,
+    drills: drillStats,
+    handSplit,
+    insight,
+  };
+}
+
+// ---------- Achievement progress ----------
+
+export type AchievementProgress = {
+  label: string;
+  progress: number;
+  target: number;
+  done: boolean;
+};
+
+export function achievementProgress(
+  results: MinResult[],
+  drills: MinDrill[],
+): AchievementProgress[] {
+  const areas = skillAreaScores(results as Result[], drills);
+  const drawArea = areas.find((a) => a.key === "draw");
+  const weakest = areas
+    .filter((a) => a.score != null)
+    .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))[0];
+
+  const drawTarget = 80;
+  const drawProgress = drawArea?.score != null ? Math.min(drawTarget, Math.round(drawArea.score)) : 0;
+
+  const mediumDrillId = drills.find((d) => d.slug === "medium-draw")?.id;
+  const mediumSessions = mediumDrillId
+    ? results.filter((r) => r.drill_id === mediumDrillId).length
+    : 0;
+
+  const out: AchievementProgress[] = [
+    {
+      label: `Improve ${SKILL_AREA_LABELS.draw} to ${drawTarget}`,
+      progress: drawProgress,
+      target: drawTarget,
+      done: drawProgress >= drawTarget,
+    },
+    {
+      label: "Complete 5 Medium Draw sessions",
+      progress: Math.min(5, mediumSessions),
+      target: 5,
+      done: mediumSessions >= 5,
+    },
+  ];
+  if (weakest) {
+    const targ = 70;
+    const prog = weakest.score != null ? Math.min(targ, Math.round(weakest.score)) : 0;
+    out.push({
+      label: `Lift ${weakest.label} to ${targ}`,
+      progress: prog,
+      target: targ,
+      done: prog >= targ,
+    });
+  }
+  return out;
+}
+
+
+// ============================================================================
+// FINISH ZONES — revised zone taxonomy.
+//   Elite       : within ½ mat of the jack
+//   Competitive : within 1 mat of the jack (short or long)
+//   Good Miss   : long only, more than 1 mat past the jack but within 2 mats,
+//                 AND within 1 mat of the centre line (line still honest)
+//   Miss        : everything else (short outside 1 mat, long outside 2 mats,
+//                 or more than 1 mat wide regardless of weight)
+// ============================================================================
+
+export type FinishZones = {
+  count: number;
+  elitePct: number;
+  competitivePct: number;
+  goodMissPct: number;
+  missPct: number;
+  eliteCount: number;
+  competitiveCount: number;
+  goodMissCount: number;
+  missCount: number;
+};
+
+export function finishZones(taps: VisualTapPoint[]): FinishZones {
+  const n = taps.length;
+  if (!n) {
+    return {
+      count: 0, elitePct: 0, competitivePct: 0, goodMissPct: 0, missPct: 0,
+      eliteCount: 0, competitiveCount: 0, goodMissCount: 0, missCount: 0,
+    };
+  }
+  let elite = 0, comp = 0, good = 0, miss = 0;
+  for (const t of taps) {
+    const sideOff = Math.abs(t.x); // mats off centre
+    if (sideOff > 1) { miss += 1; continue; } // more than 1 mat wide is always Miss
+    if (t.distance <= 0.5) { elite += 1; continue; }
+    if (t.distance <= 1.0) { comp += 1; continue; }
+    // outside 1 mat: check long-only "Good Miss" band
+    if (t.y > 1 && t.y <= 2) { good += 1; continue; }
+    miss += 1;
+  }
+  const pct = (v: number) => Math.round((v / n) * 1000) / 10;
+  return {
+    count: n,
+    elitePct: pct(elite),
+    competitivePct: pct(comp),
+    goodMissPct: pct(good),
+    missPct: pct(miss),
+    eliteCount: elite,
+    competitiveCount: comp,
+    goodMissCount: good,
+    missCount: miss,
+  };
+}
+
+// ============================================================================
+// COACH'S SUMMARY — actionable bullets built from Visual Target data.
+// ============================================================================
+
+export function coachSummaryBullets(taps: VisualTapPoint[]): string[] {
+  if (taps.length < 5) return [];
+  const zones = finishZones(taps);
+  const miss = missAnalysis(taps);
+  const wvl = weightVsLine(miss);
+  const outsidePct = Math.round((zones.goodMissPct + zones.missPct) * 10) / 10;
+  const bullets: string[] = [];
+
+  bullets.push(
+    `${outsidePct}% of your bowls finished outside the scoring zones (more than one mat from the jack).`,
+  );
+
+  if (miss.count > 0) {
+    // Weight involvement in misses = short + long (each miss has weight error if outside 1 mat vertically)
+    // Line involvement = narrow or wide classification.
+    const weightInvolved = Math.min(100, Math.round((miss.shortPct + miss.longPct) * 10) / 10);
+    const lineInvolved = Math.round((miss.narrowPct + miss.widePct) * 10) / 10;
+    if (weightInvolved >= 95) {
+      bullets.push("Every miss involved incorrect weight.");
+    } else if (weightInvolved > 0) {
+      bullets.push(`Weight was involved in ${weightInvolved}% of misses.`);
+    }
+    if (lineInvolved > 0) {
+      bullets.push(`Line was involved in ${lineInvolved}% of misses.`);
+    }
+    // Dominant weight direction
+    if (miss.shortPct >= miss.longPct + 10) {
+      bullets.push("Most misses finished short of the jack.");
+    } else if (miss.longPct >= miss.shortPct + 10) {
+      bullets.push("Most misses ran past the jack.");
+    }
+    // Line quality
+    if (lineInvolved < 30 && miss.count >= 5) {
+      bullets.push("Your line consistency is strong.");
+    } else if (miss.narrowPct >= miss.widePct + 15) {
+      bullets.push("Your line tends to drift narrow.");
+    } else if (miss.widePct >= miss.narrowPct + 15) {
+      bullets.push("Your line tends to drift wide.");
+    }
+  }
+
+  // Actionable focus
+  if (wvl.primary === "Weight") {
+    bullets.push("Focus your next practice session on length control rather than changing your line.");
+  } else if (wvl.primary === "Line") {
+    bullets.push("Focus your next practice session on line control — your weight is honest.");
+  } else if (wvl.primary === "Mixed") {
+    bullets.push("Alternate short weight-control ends with narrow-target line drills to attack both areas.");
+  }
+  return bullets;
+}
+
+// Actionable "Bowling DNA" insight — plain English, tells the player what to do.
+export function bowlingDNAActionable(taps: VisualTapPoint[]): string {
+  if (taps.length < 10) {
+    return "Record a few more visual-target sessions to unlock personalised Bowling DNA coaching.";
+  }
+  const miss = missAnalysis(taps);
+  const wvl = weightVsLine(miss);
+  const zones = finishZones(taps);
+  if (zones.elitePct + zones.competitivePct >= 65) {
+    return "You're finishing inside scoring range consistently. Sharpen your half-mat weight to lift more bowls into the Elite zone.";
+  }
+  if (wvl.primary === "Weight") {
+    return "Your line is consistently stronger than your weight. Improving your length control will produce the biggest improvement in scoring.";
+  }
+  if (wvl.primary === "Line") {
+    return "Your weight is consistently stronger than your line. Working on line control will produce the biggest improvement in scoring.";
+  }
+  if (wvl.primary === "Mixed") {
+    return "Weight and line errors are appearing in roughly equal measure. Alternate short weight-control and line-control drills to attack both.";
+  }
+  return "Keep recording sessions — as your pattern settles we'll tell you exactly what to work on.";
+}
+
+// ============================================================
+// HAND-SWITCH ANALYSIS
+// Detects whether players lose weight (or line) on the first bowl
+// delivered immediately after switching hands within a single
+// continuous activity. Only compares consecutive deliveries inside
+// the same result — never across activities.
+// ============================================================
+
+export type HandSwitchDirectionStats = {
+  n: number;             // number of transitions in this direction
+  shortPct: number;      // % finishing short (y < 0)
+  longPct: number;       // % finishing long (y > 0)
+  narrowPct: number;     // % of misses missing narrow
+  widePct: number;       // % of misses missing wide
+  onlinePct: number;     // % within one mat of the centre line
+  jackHighPct: number;   // % within weight tol of jack
+  competitivePct: number;// % within one mat (weight OR line) of jack
+  avgPoints: number;     // 0–5 average
+};
+
+export type HandSwitchAnalysis = {
+  fhToBh: HandSwitchDirectionStats;
+  bhToFh: HandSwitchDirectionStats;
+  sameHand: HandSwitchDirectionStats; // baseline: consecutive bowls on same hand
+  overall: HandSwitchDirectionStats;  // all switched bowls combined
+  totalTransitions: number;
+};
+
+const EMPTY_HS_STATS: HandSwitchDirectionStats = {
+  n: 0, shortPct: 0, longPct: 0, narrowPct: 0, widePct: 0,
+  onlinePct: 0, jackHighPct: 0, competitivePct: 0, avgPoints: 0,
+};
+
+type HSSample = {
+  x?: number; y?: number;
+  hand: "forehand" | "backhand";
+  points: number;
+};
+
+function summariseHS(samples: HSSample[]): HandSwitchDirectionStats {
+  if (!samples.length) return { ...EMPTY_HS_STATS };
+  let short = 0, long = 0, narrow = 0, wide = 0, online = 0, jackHigh = 0, competitive = 0;
+  let visual = 0, pts = 0;
+  for (const s of samples) {
+    pts += s.points;
+    if (typeof s.x === "number" && typeof s.y === "number") {
+      visual += 1;
+      const w = classifyWeight(s.y);
+      const l = classifyLine(s.x, s.hand);
+      if (s.y < -WEIGHT_TOL) short += 1;
+      else if (s.y > WEIGHT_TOL) long += 1;
+      if (l === "narrow") narrow += 1;
+      else if (l === "wide") wide += 1;
+      else online += 1;
+      if (w === "jack_high") jackHigh += 1;
+      if (w === "jack_high" || l === "online") competitive += 1;
+    }
+  }
+  const denom = visual || 1;
+  return {
+    n: samples.length,
+    shortPct: pctOf(short, denom),
+    longPct: pctOf(long, denom),
+    narrowPct: pctOf(narrow, denom),
+    widePct: pctOf(wide, denom),
+    onlinePct: pctOf(online, denom),
+    jackHighPct: pctOf(jackHigh, denom),
+    competitivePct: pctOf(competitive, denom),
+    avgPoints: Math.round((pts / samples.length) * 10) / 10,
+  };
+}
+
+/**
+ * Analyse hand-switch performance across recorded draw drill results.
+ * Only consecutive deliveries WITHIN the same result are compared.
+ */
+export function handSwitchAnalysis(
+  results: Pick<Result, "drill_id" | "breakdown">[],
+  drawDrillIds: Set<string>,
+): HandSwitchAnalysis {
+  const fhToBh: HSSample[] = [];
+  const bhToFh: HSSample[] = [];
+  const sameHand: HSSample[] = [];
+  for (const r of results) {
+    if (!drawDrillIds.has(r.drill_id)) continue;
+    const bd = (r.breakdown ?? {}) as Record<string, unknown>;
+    const raw = bd.bowls;
+    if (!Array.isArray(raw)) continue;
+    // Sort by end asc then bowl asc to reconstruct delivery order.
+    const ordered = (raw as BowlDetail[]).slice().sort((a, b) => {
+      if (a.end !== b.end) return a.end - b.end;
+      return a.bowl - b.bowl;
+    });
+    for (let i = 1; i < ordered.length; i++) {
+      const prev = ordered[i - 1];
+      const cur = ordered[i];
+      if (!prev?.hand || !cur?.hand) continue;
+      const sample: HSSample = { x: cur.x, y: cur.y, hand: cur.hand, points: cur.points ?? 0 };
+      if (prev.hand !== cur.hand) {
+        if (prev.hand === "forehand") fhToBh.push(sample);
+        else bhToFh.push(sample);
+      } else {
+        sameHand.push(sample);
+      }
+    }
+  }
+  const all = fhToBh.concat(bhToFh);
+  return {
+    fhToBh: summariseHS(fhToBh),
+    bhToFh: summariseHS(bhToFh),
+    sameHand: summariseHS(sameHand),
+    overall: summariseHS(all),
+    totalTransitions: all.length,
+  };
+}
+
+/**
+ * Produce coach-voiced insights from a HandSwitchAnalysis.
+ * Uses sample-size thresholds:
+ *   < 5 transitions  → no insight
+ *   5–9 transitions  → cautious language only if signal is large
+ *   10+ transitions  → confident language when the gap vs same-hand is meaningful
+ */
+export function handSwitchCoachInsights(a: HandSwitchAnalysis): string[] {
+  const out: string[] = [];
+  const baseline = a.sameHand.n >= 5 ? a.sameHand.shortPct : null;
+
+  function directionInsight(
+    dir: HandSwitchDirectionStats,
+    label: "forehand to backhand" | "backhand to forehand",
+  ) {
+    if (dir.n < 5) return;
+    const gap = baseline != null ? dir.shortPct - baseline : null;
+    const confident = dir.n >= 10;
+
+    // Short-bowl weakness on switch
+    if (dir.shortPct >= 45 && (gap == null || gap >= 10)) {
+      if (confident) {
+        out.push(
+          baseline != null
+            ? `Here's one to work on: when you switch from ${label}, ${dir.shortPct}% of the next bowl finishes short — well up on your normal short rate of ${baseline}%. Give yourself a moment to reset and commit to the same weight when you change your line.`
+            : `Here's one to work on: ${dir.shortPct}% of your first bowls after switching from ${label} finish short. Commit to the weight as you reset the line.`
+        );
+      } else {
+        out.push(
+          `Something I've noticed — small sample so far, but you're leaving quite a few bowls short right after switching from ${label}. Worth keeping an eye on as more data comes in.`
+        );
+      }
+      return;
+    }
+    // Long-bowl weakness on switch
+    if (dir.longPct >= 45 && dir.longPct - dir.shortPct >= 15) {
+      out.push(
+        confident
+          ? `When you switch from ${label} you're tending to overweight the first bowl — ${dir.longPct}% finish past the jack. Ease off just a touch as you reset the line.`
+          : `Early signal: your first bowl after switching from ${label} is tending long. Worth watching over the next few practices.`
+      );
+      return;
+    }
+    // Positive — switching looks solid
+    if (confident && baseline != null && Math.abs(dir.shortPct - baseline) <= 5 && dir.competitivePct >= 55) {
+      out.push(
+        `You're switching from ${label} really well — accuracy right after the change is almost identical to your normal draw.`
+      );
+    }
+  }
+
+  directionInsight(a.fhToBh, "forehand to backhand");
+  directionInsight(a.bhToFh, "backhand to forehand");
+  return out;
+}
+
+/**
+ * Rewrites a set of coaching lines in the Bowl Trainer coach voice:
+ * positive, casual, specific — never robotic. Purely stylistic; the
+ * underlying facts and percentages are preserved.
+ */
+export function applyCoachVoice(lines: string[]): string[] {
+  const openers = ["Nice work — ", "Good stuff — ", "Here's one to work on: ", "Something I've noticed — "];
+  return lines.map((raw, i) => {
+    let s = raw.trim();
+    // Strip clinical prefixes
+    s = s.replace(/^Analysis[:.]\s*/i, "").replace(/^Recommendation[:.]\s*/i, "");
+    // Soften absolute negatives
+    s = s.replace(/\bis poor\b/gi, "has room to grow")
+         .replace(/\bis weak\b/gi, "is worth working on")
+         .replace(/\bbelow average\b/gi, "costing you a few bowls at the moment");
+    // Avoid stacked exclamation marks
+    s = s.replace(/!+/g, ".");
+    // Only prepend a natural opener if the line doesn't already start conversationally.
+    const lower = s.toLowerCase();
+    const alreadyCasual = /^(nice|good|here|something|that|your|you|keep|worth)\b/.test(lower);
+    if (!alreadyCasual) s = openers[i % openers.length] + s.charAt(0).toLowerCase() + s.slice(1);
+    return s;
+  });
+}
+
+
+
+
+
+
+
+
+/**
+ * LEAD DRILL — two jacks, alternating target each bowl.
+ * Bowls 1 & 3 are measured against the FRONT jack, bowls 2 & 4 against the
+ * BACK jack (one mat length behind). Scoring is the standard draw scoring.
+ */
+export const LEAD_DRILL_SLUG = "lead-drill";
+export const LEAD_DRILL_BOWL_TARGETS = [
+  "Front jack",
+  "Back jack",
+  "Front jack",
+  "Back jack",
+] as const;
+export function leadDrillTargetFor(bowlIndex: number): string {
+  return LEAD_DRILL_BOWL_TARGETS[bowlIndex % LEAD_DRILL_BOWL_TARGETS.length];
+}

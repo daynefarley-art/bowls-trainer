@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Bowls Trainer uses the camera so Head Scan can photograph the head and place your bowls on the Visual Target. Photos stay on your device and are never saved or uploaded.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Bowls Trainer only needs this if you choose to save a Head Scan photo. Head Scan photos are otherwise discarded.</string>
     <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>

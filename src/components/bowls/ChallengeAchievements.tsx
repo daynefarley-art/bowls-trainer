@@ -32,10 +32,12 @@ function useChallengeBests(userId: string) {
     queryKey: ["challenge_bests", userId],
     queryFn: async () => {
       const { data, error } = await (supabase as any)
-        .from("challenge_results").select("challenge_id, score").eq("user_id", userId);
+        .from("challenge_results").select("challenge_id, score, breakdown, challenges(slug)").eq("user_id", userId);
       if (error) throw error;
       const map = new Map<string, number>();
-      for (const r of (data ?? []) as { challenge_id: string; score: number }[]) {
+      for (const r of (data ?? []) as { challenge_id: string; score: number; breakdown: any; challenges: { slug: string } | null }[]) {
+        // SLiMeD current scoring max 80. Exclude legacy attempts (v1 max 64, v2 max 160) from badge best.
+        if (r.challenges?.slug === "slimed" && r.breakdown?.max_score !== 80) continue;
         const cur = map.get(r.challenge_id);
         if (cur == null || r.score > cur) map.set(r.challenge_id, r.score);
       }

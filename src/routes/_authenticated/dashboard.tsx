@@ -1,14 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/bowls/PageHeader";
 import { BSIBadge } from "@/components/bowls/BSIBadge";
-import { BSIModal } from "@/components/bowls/BSIModal";
+
 import { categoryScores, overallBSI, trainingStats, formatHM, handStats, DRAW_DRILL_SLUGS, type Drill, type Result } from "@/lib/bowls";
 import { challengeStats, type ChallengeResult } from "@/lib/challenges";
-import { Target, Trophy, Info, Clock, ChevronRight, BookOpen } from "lucide-react";
-import { StartSessionButton } from "@/components/bowls/StartSessionButton";
+import { Target, Trophy, Info, Clock, ChevronRight, BookOpen, Sparkles } from "lucide-react";
+import { DrawSkillRatingsInfo } from "@/components/bowls/DrawSkillRatingsInfo";
 import { OnboardingDialog } from "@/components/bowls/OnboardingDialog";
 import { HelpInfoButton } from "@/components/bowls/HelpInfoButton";
 import { GettingStartedGuide, hasSeenGettingStarted } from "@/components/bowls/GettingStartedGuide";
@@ -19,10 +19,97 @@ import {
   markSmartPromptAnswered,
 } from "@/lib/dashboard-prefs";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { PracticeResumeLink } from "@/components/practice/PracticeResumeLink";
+import { discardActivity, type PracticeActivity } from "@/lib/practice";
+
 
 import { SESSIONS_QK, formatMinutes, type TrainingSession } from "@/lib/sessions";
 import { useDemoMode } from "@/lib/demo-mode";
 import { SquadDashboardCard } from "@/components/bowls/SquadDashboardCard";
+import { ContinuePracticeCard } from "@/components/practice/ContinuePracticeCard";
+import { useActiveOrPausedPractice, useSavedPractices } from "@/hooks/use-practice-activity";
+import { AICoachDashboardCard } from "@/components/bowls/AICoachDashboardCard";
+import { WeeklyGoalCard } from "@/components/bowls/WeeklyGoalCard";
+import { TrainingProgramCard } from "@/components/bowls/TrainingProgramCard";
+
+function ContinuePracticeSlot() {
+  const { activity } = useActiveOrPausedPractice();
+  const { activities } = useSavedPractices();
+  if (!activity) return null;
+  const more = Math.max(0, activities.length - 1);
+  return (
+    <>
+      <RecoveryPrompt activity={activity} />
+      <ContinuePracticeCard activity={activity} moreCount={more} />
+    </>
+  );
+}
+
+function RecoveryPrompt({ activity }: { activity: PracticeActivity }) {
+  const [open, setOpen] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
+  const label = activity.title ?? activity.slug ?? "Practice";
+  const bowls = activity.bowls_delivered ?? 0;
+
+  // ONE modal: resume, keep for later, or end it (keeping or deleting the
+  // results). No follow-up confirmation for either ending choice.
+  const end = async (keepResults: boolean) => {
+    setBusy(true);
+    try {
+      await discardActivity(activity.id, keepResults);
+      qc.invalidateQueries({ queryKey: ["practice_activities"] });
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-sm rounded-2xl">
+        <DialogTitle className="text-center font-display text-lg font-extrabold">
+          UNFINISHED PRACTICE FOUND
+        </DialogTitle>
+        <DialogDescription className="text-center text-sm text-muted-foreground">
+          {label} · {bowls} bowl{bowls === 1 ? "" : "s"} recorded
+        </DialogDescription>
+        <div className="mt-4 flex flex-col gap-2">
+          <PracticeResumeLink
+            activity={activity}
+            className="rounded-xl bg-primary px-4 py-3 text-center text-sm font-bold text-primary-foreground active:scale-[0.99] transition"
+          >
+            Resume
+          </PracticeResumeLink>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="rounded-xl bg-secondary px-4 py-3 text-sm font-bold active:scale-[0.99] transition"
+          >
+            Later
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => end(true)}
+            className="rounded-xl bg-secondary px-4 py-3 text-sm font-bold active:scale-[0.99] transition disabled:opacity-60"
+          >
+            End Drill · Save to History
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => end(false)}
+            className="rounded-xl bg-destructive px-4 py-3 text-sm font-bold text-destructive-foreground active:scale-[0.99] transition disabled:opacity-60"
+          >
+            Delete Drill
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -31,7 +118,8 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 function Dashboard() {
   const { user } = Route.useRouteContext();
-  const [bsiOpen, setBsiOpen] = useState(false);
+  // (BSI modal removed — Overall BSI now navigates to /performance)
+
   const [guideOpen, setGuideOpen] = useState(false);
   const [showGSCard, setShowGSCard] = useState(true);
   const [smartPromptOpen, setSmartPromptOpen] = useState(false);
@@ -135,7 +223,10 @@ function Dashboard() {
 
   // Challenge stats (do NOT contribute to BSI)
   const chStats = challengeStats(allChallengeResults);
-  const challengeMinutes = allChallengeResults.reduce((s, r) => s + (r.duration_minutes ?? 0), 0);
+  const challengeMinutes = allChallengeResults.reduce((s, r) => {
+    const m = r.duration_minutes ?? 0;
+    return s + (m > 0 ? Math.min(m, 60) : 0);
+  }, 0);
   const latestPB = (() => {
     if (allChallengeResults.length === 0) return null;
     let best = allChallengeResults[0];
@@ -184,9 +275,9 @@ function Dashboard() {
 
       <main className="mx-auto -mt-4 max-w-md space-y-4 px-5">
         <DashboardDemoBanner />
-        <button
-          type="button"
-          onClick={() => setBsiOpen(true)}
+        <ContinuePracticeSlot />
+        <Link
+          to="/performance"
           className="block w-full rounded-3xl bg-card p-6 text-left bt-shadow-elevated active:scale-[0.99] transition"
         >
           <div className="flex items-center gap-5">
@@ -201,10 +292,11 @@ function Dashboard() {
               <p className="mt-1 text-sm text-muted-foreground">
                 {allResults.length} session{allResults.length === 1 ? "" : "s"} across {byDrill.size} drill{byDrill.size === 1 ? "" : "s"}
               </p>
-              <p className="mt-1 text-xs font-semibold text-primary">Tap for breakdown</p>
+              <p className="mt-1 text-xs font-semibold text-primary">Tap for Performance Dashboard</p>
             </div>
           </div>
-        </button>
+        </Link>
+
 
         {showGSCard && (
           <div className="rounded-3xl bg-card p-5 bt-shadow-card">
@@ -215,7 +307,7 @@ function Dashboard() {
               <div className="min-w-0 flex-1">
                 <h3 className="font-display text-lg font-extrabold leading-tight">Getting Started</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Learn how BSI, Drills, Challenges, Training Sessions and Progress Tracking work together.
+                  Learn how BSI, Drills, Challenges, Practice and Progress Tracking work together.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -250,7 +342,11 @@ function Dashboard() {
           <HelpInfoButton />
         </div>
 
-        <StartSessionButton />
+        <TrainingProgramCard userId={user.id} />
+
+        <AICoachDashboardCard userId={user.id} />
+
+
 
         <div className="grid grid-cols-2 gap-3">
           <Link
@@ -277,7 +373,7 @@ function Dashboard() {
         {recentSessions && recentSessions.length > 0 && (
           <section className="space-y-2">
             <div className="flex items-end justify-between px-1">
-              <h2 className="font-display text-lg font-bold">Recent training sessions</h2>
+              <h2 className="font-display text-lg font-bold">Recent Practice</h2>
               <Link to="/sessions" className="flex items-center text-sm font-semibold text-primary">
                 View all <ChevronRight className="h-4 w-4" />
               </Link>
@@ -311,6 +407,8 @@ function Dashboard() {
           </section>
         )}
 
+        <WeeklyGoalCard userId={user.id} />
+
         <Link
           to="/progress"
           className="flex items-center gap-4 rounded-2xl bg-card p-4 bt-shadow-card active:scale-[0.99] transition"
@@ -320,7 +418,7 @@ function Dashboard() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Training This Week
+              Practice This Week
             </p>
             <p className="mt-0.5 font-display text-2xl font-extrabold">
               {tStats.thisWeek > 0 ? formatHM(tStats.thisWeek) : "0m"}
@@ -380,13 +478,19 @@ function Dashboard() {
 
         {/* Draw skills: per-length scores + FH/BH */}
         <section className="space-y-2">
-          <h2 className="px-1 font-display text-lg font-bold">Draw skills</h2>
+          <div className="flex items-center justify-between px-1">
+            <div>
+              <h2 className="font-display text-lg font-bold">Draw Skill Ratings</h2>
+              <p className="text-[11px] text-muted-foreground">BSI Ratings (0–100)</p>
+            </div>
+            <DrawSkillRatingsInfo />
+          </div>
           <div className="grid grid-cols-3 gap-2">
-            {(DRAW_DRILL_SLUGS as readonly string[]).map((slug) => {
+            {(["short-draw", "medium-draw", "long-draw"] as const).map((slug) => {
               const d = allDrills.find((x) => x.slug === slug);
               const vals = d ? (byDrill.get(d.id) ?? []).map((r) => Number(r.bsi ?? r.percentage ?? 0)) : [];
               const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-              const label = slug === "short-draw" ? "Short" : slug === "medium-draw" ? "Medium" : "Long";
+              const label = slug === "short-draw" ? "Short Draw" : slug === "medium-draw" ? "Medium Draw" : "Long Draw";
               return (
                 <div key={slug} className="rounded-2xl bg-card p-3 text-center bt-shadow-card">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -398,22 +502,24 @@ function Dashboard() {
             })}
 
           </div>
+
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-2xl bg-card p-3 bt-shadow-card">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Forehand</p>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Forehand Skill Score</p>
               <p className="mt-1 font-display text-2xl font-extrabold text-primary">
-                {hStats.fhPct == null ? "—" : `${hStats.fhPct.toFixed(0)}%`}
+                {hStats.fhPct == null ? "—" : hStats.fhPct.toFixed(0)}
               </p>
               <p className="text-[10px] text-muted-foreground">{hStats.fhBowls} bowl{hStats.fhBowls === 1 ? "" : "s"}</p>
             </div>
             <div className="rounded-2xl bg-card p-3 bt-shadow-card">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Backhand</p>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Backhand Skill Score</p>
               <p className="mt-1 font-display text-2xl font-extrabold text-primary">
-                {hStats.bhPct == null ? "—" : `${hStats.bhPct.toFixed(0)}%`}
+                {hStats.bhPct == null ? "—" : hStats.bhPct.toFixed(0)}
               </p>
               <p className="text-[10px] text-muted-foreground">{hStats.bhBowls} bowl{hStats.bhBowls === 1 ? "" : "s"}</p>
             </div>
           </div>
+
           {strongestHand && (
             <div className="flex items-center justify-between rounded-2xl bg-secondary/40 px-4 py-2 text-xs">
               <span><span className="font-bold text-primary">Strongest:</span> {strongestHand}</span>
@@ -526,12 +632,12 @@ function Dashboard() {
               </div>
             </div>
           ) : (
-            <p className="py-6 text-center text-sm text-muted-foreground">No sessions yet — record your first one!</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">No results yet — record your first one!</p>
           )}
         </section>
       </main>
 
-      <BSIModal open={bsiOpen} onOpenChange={setBsiOpen} results={allResults} drills={allDrills} />
+      
       <OnboardingDialog />
       <GettingStartedGuide open={guideOpen} onOpenChange={setGuideOpen} />
       <Dialog

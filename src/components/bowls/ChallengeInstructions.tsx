@@ -1,6 +1,11 @@
 import { Link, type LinkProps } from "@tanstack/react-router";
 import { Trophy, ChevronRight } from "lucide-react";
 import { normalizeChallengeConfig, type Challenge } from "@/lib/challenges";
+import {
+  JACK_IN_DITCH_POINTS_GATE,
+  JACK_IN_DITCH_POINTS_JACK,
+  JACK_IN_DITCH_PERFECT_BONUS,
+} from "@/lib/challenges";
 import { TrafficJamDiagram } from "@/components/bowls/TrafficJamDiagram";
 import { DifficultyBadge, AchievementBadge } from "@/components/bowls/ChallengeBadge";
 import {
@@ -95,6 +100,15 @@ export function ChallengeInstructions({
         </Section>
       )}
 
+      {cfg.variant === "jack-in-ditch" && (
+        <Section title="Drive channel">
+          <p className="text-sm leading-relaxed">
+            Place a mat directly behind the jack, positioned lengthwise in line with
+            the delivery. This mat becomes the drive channel.
+          </p>
+        </Section>
+      )}
+
       {cfg.diagram === "traffic-jam" && (
         <Section title="Setup diagram">
           <div className="mx-auto max-w-[220px]">
@@ -136,9 +150,17 @@ export function ChallengeInstructions({
       <Section title="Scoring">
         {cfg.variant === "jack-in-ditch" ? (
           <ul className="space-y-1.5 text-sm">
-            <li className="flex gap-2"><span className="text-primary">•</span><span>Through the Drive Gate = <span className="font-bold">1 point</span></span></li>
-            <li className="flex gap-2"><span className="text-primary">•</span><span>Strike the Jack = <span className="font-bold">4 points</span></span></li>
-            <li className="flex gap-2"><span className="text-primary">•</span><span>⭐ Perfect End = <span className="font-bold">+2 bonus points</span></span></li>
+            <li className="flex gap-2"><span className="text-primary">•</span><span>Through the Drive Gate = <span className="font-bold">{JACK_IN_DITCH_POINTS_GATE} point{JACK_IN_DITCH_POINTS_GATE === 1 ? "" : "s"}</span></span></li>
+            <li className="flex gap-2"><span className="text-primary">•</span><span>Strike the Jack = <span className="font-bold">{JACK_IN_DITCH_POINTS_JACK} points</span></span></li>
+            <li className="flex gap-2"><span className="text-primary">•</span><span>⭐ Perfect End = <span className="font-bold">+{JACK_IN_DITCH_PERFECT_BONUS} bonus points</span></span></li>
+            <li className="mt-1 text-xs text-muted-foreground">Max {maxScore} — {challenge.score_label}</li>
+          </ul>
+        ) : cfg.variant === "slimed" ? (
+          <ul className="space-y-1.5 text-sm">
+            <li className="flex gap-2"><span className="text-primary">•</span><span>Within ½ mat of the target = <span className="font-bold">5 points</span></span></li>
+            <li className="flex gap-2"><span className="text-primary">•</span><span>Within 1 mat of the target = <span className="font-bold">3 points</span></span></li>
+            <li className="flex gap-2"><span className="text-primary">•</span><span>Within 2 mats of the target = <span className="font-bold">1 point</span></span></li>
+            <li className="flex gap-2"><span className="text-primary">•</span><span>Outside 2 mats = <span className="font-bold">0 points</span></span></li>
             <li className="mt-1 text-xs text-muted-foreground">Max {maxScore} — {challenge.score_label}</li>
           </ul>
         ) : (
@@ -156,7 +178,16 @@ export function ChallengeInstructions({
         <ul className="space-y-1.5 text-sm text-muted-foreground">
           {cfg.variant === "slimed" ? (
             <>
-              <li className="flex gap-2"><span className="text-primary">•</span><span>Weight is crucial, reset with every delivery.</span></li>
+              <li className="flex gap-2"><span className="text-primary">•</span><span>Weight is everything — reset your feel for every length change.</span></li>
+              <li className="flex gap-2"><span className="text-primary">•</span><span>Within ½ mat scores 5, so back yourself to attack the jack.</span></li>
+              <li className="flex gap-2"><span className="text-primary">•</span><span>Every mat closer counts — a 2-mat bowl is still on the board.</span></li>
+            </>
+          ) : cfg.variant === "switch-32" ? (
+            <>
+              <li className="flex gap-2"><span className="text-primary">•</span><span>Adapt quickly — every end is a new target length and every bowl a new hand.</span></li>
+              <li className="flex gap-2"><span className="text-primary">•</span><span>Reset your line and weight between bowls; don't carry the last delivery into the next.</span></li>
+              <li className="flex gap-2"><span className="text-primary">•</span><span>Commit fully to each new shot, even when the switch feels awkward.</span></li>
+              <li className="flex gap-2"><span className="text-primary">•</span><span>Trust your routine — a clean setup beats trying to muscle the shot.</span></li>
             </>
           ) : cfg.variant === "jack-in-ditch" ? (
             <>

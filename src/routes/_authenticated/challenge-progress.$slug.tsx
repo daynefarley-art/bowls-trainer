@@ -109,14 +109,17 @@ function ChallengeProgressPage() {
     for (const r of rs) {
       const b = r.breakdown as SlimedBreakdown | undefined;
       if (!b || b.type !== "slimed") continue;
+      // SLiMeD current scoring is max 80 (4 ends × 4 bowls × 5). Legacy v1 (max 64) and v2 (max 160) attempts kept as history only. Only aggregate v2 attempts so
+      // per-target/per-hand percentages use a consistent scoring scale.
+      if ((b as any).max_score !== 80) continue;
       for (const bowl of b.bowls ?? []) {
         totalBowls += 1;
         lengthTally[bowl.target].score += bowl.score;
-        lengthTally[bowl.target].max += 2;
+        lengthTally[bowl.target].max += 5;
         handTally[bowl.hand].score += bowl.score;
-        handTally[bowl.hand].max += 2;
-        if (bowl.score === 2) touchers += 1;
-        else if (bowl.score === 1) oneMat += 1;
+        handTally[bowl.hand].max += 5;
+        if (bowl.score === 5) touchers += 1;
+        else if (bowl.score >= 1) oneMat += 1;
         else miss += 1;
         if (bowl.line && bowl.weight) {
           visualBowls += 1;
@@ -443,7 +446,7 @@ function ChallengeProgressPage() {
                 </p>
                 <div className="mt-1 grid grid-cols-3 gap-2 text-center">
                   <StatCell label="Short" value={slimed.visual.short} suffix="%" />
-                  <StatCell label="Within a Mat" value={slimed.visual.jackHigh} suffix="%" />
+                  <StatCell label="Within 1 mat" value={slimed.visual.jackHigh} suffix="%" />
                   <StatCell label="Long" value={slimed.visual.past} suffix="%" />
                 </div>
               </section>

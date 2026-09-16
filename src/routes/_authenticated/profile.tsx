@@ -2,12 +2,14 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { isHeadScanAllowedUser } from "@/lib/head-scan-access";
+
 import { PageHeader } from "@/components/bowls/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { LogOut, Clock, Flame, TrendingUp, Trophy, BookOpen, Shield, KeyRound, Trash2, AlertTriangle, Sparkles, Users } from "lucide-react";
+import { LogOut, Clock, Flame, TrendingUp, Trophy, BookOpen, Shield, KeyRound, Trash2, AlertTriangle, Sparkles, Users, Building2, ChevronDown, X } from "lucide-react";
 import { formatHM, bestTrainingWeek, weeklyAverage, trainingStreak, trainingStats, type Result } from "@/lib/bowls";
 import { GettingStartedGuide } from "@/components/bowls/GettingStartedGuide";
 import { Switch } from "@/components/ui/switch";
@@ -33,6 +35,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Target } from "lucide-react";
+import { useClub } from "@/components/bowls/ClubProvider";
+import { JoinClubCard } from "@/components/bowls/JoinClubCard";
+import { ClubAdminLink } from "@/components/bowls/ClubAdminLink";
+import { ViewAsClubCard } from "@/components/bowls/ViewAsClubCard";
+
 
 export const Route = createFileRoute("/_authenticated/profile")({
   component: ProfilePage,
@@ -216,6 +223,8 @@ function ProfilePage() {
           </div>
         </section>
 
+
+
         <section className="space-y-3 rounded-2xl bg-card p-5 bt-shadow-card">
           <h2 className="font-display text-lg font-bold">Dashboard Preferences</h2>
           <div className="flex items-center justify-between gap-3">
@@ -247,11 +256,16 @@ function ProfilePage() {
 
         <MySquadStatsCard />
 
+        <ClubMembershipSection />
+
         <AccountSecuritySection email={user.email ?? ""} />
 
         <AdminToolsSection userId={user.id} />
 
+        <TestingDiagnosticsSection userId={user.id} />
+
         <WhatsNewLink />
+
 
 
         <button
@@ -609,3 +623,120 @@ function DemoModeSection() {
 }
 
 
+
+/**
+ * PRIVATE TESTING & DIAGNOSTICS. Renders for one explicit developer account
+ * only — every other account sees nothing at all (no locked/disabled state).
+ */
+function TestingDiagnosticsSection({ userId }: { userId: string }) {
+  if (!isHeadScanAllowedUser(userId)) return null;
+  return (
+    <section className="space-y-2 rounded-2xl border border-border/60 bg-card/60 p-4">
+      <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+        Testing &amp; Diagnostics
+      </h2>
+      <Link
+        to="/diagnostics/head-scan"
+        className="flex h-11 w-full items-center justify-between rounded-xl bg-secondary px-4 text-sm font-semibold"
+      >
+        Head Scan Test
+        <span aria-hidden className="text-muted-foreground">›</span>
+      </Link>
+    </section>
+  );
+}
+
+function ClubMembershipSection() {
+  const { clubs, activeClub, setActiveClubId, isLoading, optOut, isPlatformAdmin } = useClub();
+  const [showAll, setShowAll] = useState(false);
+
+  if (isLoading) return null;
+  if (clubs.length === 0)
+    return (
+      <>
+        <ViewAsClubCard />
+        <JoinClubCard />
+      </>
+    );
+
+  return (
+    <>
+    <ViewAsClubCard />
+    <section className="space-y-3 rounded-2xl bg-card p-5 bt-shadow-card">
+
+      <div className="flex items-center gap-2">
+        <Building2 className="h-4 w-4 text-primary" />
+        <h2 className="font-display text-lg font-bold">My Clubs</h2>
+      </div>
+
+      <div className="space-y-2">
+        {clubs.slice(0, showAll ? undefined : 3).map((club) => (
+          <div
+            key={club.id}
+            className={`flex items-center justify-between rounded-xl border px-3 py-2 transition ${
+              activeClub?.id === club.id ? "border-primary bg-primary/5" : "border-border"
+            }`}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              {club.logo_url ? (
+                <img src={club.logo_url} alt={club.name} className="h-8 w-8 rounded-full object-contain bg-muted" />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
+                  {club.short_name?.[0] ?? club.name[0]}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{club.name}</p>
+                <p className="text-xs text-muted-foreground capitalize">{club.role}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              {activeClub?.id !== club.id && (
+                <Button variant="ghost" size="sm" onClick={() => setActiveClubId(club.id)}>
+                  Switch
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground"
+                onClick={() => optOut(club.id)}
+                title="Opt out of club squad"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <ClubAdminLink />
+
+      {clubs.length > 3 && (
+        <button
+          onClick={() => setShowAll((s) => !s)}
+          className="flex w-full items-center justify-center gap-1 text-xs font-semibold text-primary"
+        >
+          {showAll ? "Show less" : `Show all ${clubs.length} clubs`}
+          <ChevronDown className={`h-3 w-3 transition ${showAll ? "rotate-180" : ""}`} />
+        </button>
+      )}
+
+      <JoinClubSubForm />
+    </section>
+    </>
+  );
+
+}
+
+function JoinClubSubForm() {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="w-full text-xs font-semibold text-primary">
+        Join another club with a code
+      </button>
+    );
+  }
+  return <JoinClubCard />;
+}

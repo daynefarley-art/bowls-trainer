@@ -29,7 +29,7 @@ function HistoryPage() {
 
   return (
     <>
-      <PageHeader title="Results History" subtitle={`${results?.length ?? 0} session${results?.length === 1 ? "" : "s"}`} />
+      <PageHeader title="Practice History" subtitle={`${results?.length ?? 0} result${results?.length === 1 ? "" : "s"}`} />
       <main className="mx-auto -mt-4 max-w-md space-y-3 px-5">
         {results?.length === 0 && (
           <div className="rounded-2xl bg-card p-8 text-center text-muted-foreground bt-shadow-card">

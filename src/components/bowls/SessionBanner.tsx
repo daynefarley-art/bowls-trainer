@@ -59,7 +59,7 @@ export function SessionBanner() {
             </span>
             <Link to="/sessions/$id" params={{ id: activeSession.id }} className="min-w-0 flex-1">
               <p className="text-[10px] font-bold uppercase tracking-wider opacity-90">
-                {isPaused ? "Paused" : "Training session"}
+                {isPaused ? "Paused" : "Practice"}
               </p>
               <p className="flex items-center gap-1.5 text-sm font-bold">
                 <Clock className="h-3.5 w-3.5" />

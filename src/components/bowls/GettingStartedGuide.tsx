@@ -73,7 +73,7 @@ const pages: Page[] = [
     title: "Visual Scoring Insights",
     intro: "When using Visual Scoring on Draw Drills, the app can identify why bowls are missing the target.",
     sections: [
-      { heading: "Track", bullets: ["Narrow / Crossed Line deliveries", "Wide deliveries", "Short bowls", "Within a Mat bowls", "Long bowls"] },
+      { heading: "Track", bullets: ["Narrow / Crossed Line deliveries", "Wide deliveries", "Short bowls", "Within 1 mat bowls", "Long bowls"] },
       { heading: "Patterns it can reveal", bullets: ["Forehand crossing the line", "Backhand finishing wide", "Long draws finishing short", "Consistent weight issues"] },
     ],
     closing: "The goal is to turn practice results into coaching insights.",

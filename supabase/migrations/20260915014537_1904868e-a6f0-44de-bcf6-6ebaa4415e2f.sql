@@ -1,0 +1,1 @@
+UPDATE public.app_settings SET value = 'false'::jsonb, updated_at = now() WHERE key = 'private_beta_mode';

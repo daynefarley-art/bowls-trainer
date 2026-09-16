@@ -1,32 +1,35 @@
-import { createFileRoute, Link, useNavigate, useBlocker } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { LeavePracticeGuard } from "@/components/practice/LeavePracticeGuard";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  completeTrainerBlock,
+  getTrainerBlock,
+  recorderPrescription,
+  trainerPrescription,
+  TRAINER_BLOCK_QK,
+  TRAINER_CURRENT_QK,
+  TRAINER_SESSION_QK,
+} from "@/lib/trainer";
 import { PageHeader } from "@/components/bowls/PageHeader";
+import { ExitPracticeButton } from "@/components/practice/ExitPracticeButton";
 import { EndSessionDialog } from "@/components/bowls/EndSessionDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { percentageOf, bsiFromBreakdown, type Drill } from "@/lib/bowls";
 import { SessionConditionsField, type GreenType } from "@/components/bowls/SessionConditionsField";
 import { Minus, Plus, Target, ChevronRight, StopCircle } from "lucide-react";
 import { toast } from "sonner";
 import { isDemoMode } from "@/lib/demo-mode";
-import { DemoResultNotice } from "@/components/bowls/DemoResultNotice";
 import { useActiveSession } from "@/hooks/use-active-session";
-import { ACTIVE_SESSION_QK, SESSIONS_QK, attachActivity, getActiveSession } from "@/lib/sessions";
+import { ACTIVE_SESSION_QK, SESSIONS_QK, attachActivity, ensureActivePractice } from "@/lib/sessions";
+import { usePracticeTracker } from "@/hooks/use-practice-tracker";
+import { PauseButton } from "@/components/practice/PauseButton";
+import { useActivityAutosave, useBackgroundPauseGuard } from "@/hooks/use-practice-activity";
 
 const SESSION_KEY = "bowls.activeSession.v1";
 type ActiveSession = Record<string, string>; // drillId -> ISO start time
@@ -59,9 +62,12 @@ function clearStart(drillId: string) {
 
 
 const searchSchema = z.object({
-  drill: z.string().optional(),
-  id: z.string().optional(),
-  start: z.string().optional(),
+  drill: z.coerce.string().optional(),
+  id: z.coerce.string().optional(),
+  start: z.coerce.string().optional(),
+  resume: z.coerce.string().optional(),
+  trainer: z.coerce.string().optional(),
+  block: z.coerce.string().optional(),
 });
 
 export const Route = createFileRoute("/_authenticated/record")({
@@ -71,7 +77,7 @@ export const Route = createFileRoute("/_authenticated/record")({
 
 function RecordPage() {
   const { user } = Route.useRouteContext();
-  const { drill: drillSlug, id: editId, start } = Route.useSearch();
+  const { drill: drillSlug, id: editId, start, resume, trainer: trainerId, block: trainerBlockId } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -83,6 +89,20 @@ function RecordPage() {
       return (data ?? []) as unknown as Drill[];
     },
   });
+
+  // Trainer block (source of truth for the prescribed setup, fetched by id so
+  // it restores correctly after the app has been closed).
+  const { data: trainerBlock } = useQuery({
+    queryKey: TRAINER_BLOCK_QK(trainerBlockId ?? ""),
+    enabled: !!trainerBlockId,
+    queryFn: () => getTrainerBlock(trainerBlockId!),
+  });
+  const prescription = useMemo(() => trainerPrescription(trainerBlock), [trainerBlock]);
+  const rx = useMemo(
+    () => recorderPrescription(prescription, drillSlug ?? null, trainerBlockId ?? drillSlug ?? "", 4),
+    [prescription, drillSlug, trainerBlockId],
+  );
+
 
   const { data: editing } = useQuery({
     queryKey: ["result", editId],
@@ -115,6 +135,14 @@ function RecordPage() {
   const [hydrated, setHydrated] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const { activeSession } = useActiveSession();
+  const currentBowlsDelivered = useMemo(() => {
+    if (!drill) return 0;
+    return drill.scoring_config.categories.reduce((s, c) => s + (counts[c.key] ?? 0), 0);
+  }, [drill, counts]);
+  const practiceState = useMemo(
+    () => ({ counts, notes, conditionsList, greenType, greenSpeed, location }),
+    [counts, notes, conditionsList, greenType, greenSpeed, location],
+  );
 
   useEffect(() => {
     if (editing && !hydrated) {
@@ -141,13 +169,59 @@ function RecordPage() {
     setStartedAt(ensureStart(drill.id));
   }, [drill, editId, start]);
 
-  // Block in-app navigation away when there's an in-progress (unsaved) session.
-  const hasUnsaved = !editId && !savedOk && Object.values(counts).some((n) => n > 0);
-  const blocker = useBlocker({
-    shouldBlockFn: () => hasUnsaved,
-    enableBeforeUnload: hasUnsaved,
-    withResolver: true,
+  // Practice activity tracking (additive — sits alongside existing timer).
+  // Creates or resumes a practice_activity when the drill is actively being
+  // recorded, autosaves state, and marks completed on successful save.
+  const trackerEnabled = !!drill && !editId;
+  const { activity: practiceActivity, saveState: savePracticeState, markCompleted: markPracticeCompleted } =
+    usePracticeTracker({
+      userId: user?.id,
+      kind: "drill",
+      slug: drill?.slug,
+      drillId: drill?.id ?? null,
+      title: drill?.name ?? null,
+      initialState: practiceState,
+      bowlsDelivered: currentBowlsDelivered,
+      enabled: trackerEnabled,
+      resumeId: resume ?? null,
+    });
+
+  // Hydrate local state from resumed activity's saved state (once).
+  const [practiceHydrated, setPracticeHydrated] = useState(false);
+  useEffect(() => {
+    if (!practiceActivity || practiceHydrated || editing) return;
+    const s = (practiceActivity.state ?? {}) as Record<string, any>;
+    if (s.counts && typeof s.counts === "object") setCounts(s.counts);
+    if (typeof s.notes === "string") setNotes(s.notes);
+    if (Array.isArray(s.conditionsList)) setConditionsList(s.conditionsList);
+    if (typeof s.greenType === "string") setGreenType(s.greenType as GreenType | "");
+    if (typeof s.greenSpeed === "string") setGreenSpeed(s.greenSpeed);
+    if (typeof s.location === "string") setLocation(s.location);
+    setPracticeHydrated(true);
+  }, [practiceActivity, practiceHydrated, editing]);
+
+  useActivityAutosave(practiceActivity?.id, trackerEnabled ? practiceState : null, {
+    debounceMs: 250,
+    bowlsDelivered: currentBowlsDelivered,
   });
+  useBackgroundPauseGuard(practiceActivity);
+
+  const flushPracticeState = async () => {
+    await savePracticeState(practiceState, currentBowlsDelivered);
+  };
+
+
+  // Show the "unfinished practice" leave guard whenever a live practice
+  // activity exists and hasn't yet been marked complete.
+  const hasUnsaved = !editId && !savedOk && !!practiceActivity && practiceActivity.status !== "completed";
+
+  const updateCounts = (nextCounts: Record<string, number>) => {
+    setCounts(nextCounts);
+    const nextBowls = drill
+      ? drill.scoring_config.categories.reduce((s, c) => s + (nextCounts[c.key] ?? 0), 0)
+      : 0;
+    savePracticeState({ ...practiceState, counts: nextCounts }, nextBowls).catch(() => {});
+  };
 
   // Step 2: drill picker — when no drill is selected, list drills.
   if (showPicker) {
@@ -198,6 +272,8 @@ function RecordPage() {
   const remaining = target - total;
   const valid = total === target;
   const pct = percentageOf(score, drill.min_score, drill.max_score);
+  const liveBsi = bsiFromBreakdown(drill.slug, counts, pct);
+
   const attemptLabel = drill.category === "Jack Delivery" ? "jacks" : drill.category === "Drive" ? "drives" : "bowls";
 
   function adjust(key: string, delta: number) {
@@ -205,7 +281,10 @@ function RecordPage() {
       const next = Math.max(0, (prev[key] ?? 0) + delta);
       const otherTotal = cats.reduce((s, c) => s + (c.key === key ? 0 : prev[c.key] ?? 0), 0);
       if (otherTotal + next > target) return prev;
-      return { ...prev, [key]: next };
+      const nextCounts = { ...prev, [key]: next };
+      const nextBowls = cats.reduce((s, c) => s + (nextCounts[c.key] ?? 0), 0);
+      savePracticeState({ ...practiceState, counts: nextCounts }, nextBowls).catch(() => {});
+      return nextCounts;
     });
   }
 
@@ -246,12 +325,9 @@ function RecordPage() {
 
     const completedAt = new Date();
     const startIso = startedAt ?? ensureStart(drill!.id);
-    const durationMinutes = Math.max(
-      1,
-      Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000),
-    );
+    const durationMinutes = Math.min(60, Math.max(1, Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000)));
 
-    const activeSession = await getActiveSession(user.id);
+    const activeSession = await ensureActivePractice(user.id);
 
     if (isDemoMode()) {
       setSaving(false);
@@ -259,9 +335,23 @@ function RecordPage() {
       clearStart(drill!.id);
       if (activeSession) await attachActivity(activeSession.id, "drill", drill!.category);
       toast.success(`Demo result — not saved (${score}/${drill!.max_score})`);
+    if (trainerId && trainerBlockId) {
+      await completeTrainerBlock({
+        sessionId: trainerId,
+        blockId: trainerBlockId,
+        resultId: null,
+        score,
+        percentage: pct,
+      });
+      qc.invalidateQueries({ queryKey: TRAINER_SESSION_QK(trainerId) });
+      qc.invalidateQueries({ queryKey: TRAINER_CURRENT_QK(user.id) });
+      navigate({ to: "/trainer/$id", params: { id: trainerId } });
+      return;
+    }
       if (repeat) navigate({ to: "/drill/$slug", params: { slug: drill!.slug } });
       else if (activeSession) navigate({ to: "/sessions/$id", params: { id: activeSession.id } });
       else navigate({ to: "/dashboard" });
+      await markPracticeCompleted();
       return;
     }
 
@@ -300,6 +390,7 @@ function RecordPage() {
     const newId = data.id;
     clearStart(drill!.id);
     setSavedOk(true);
+    await markPracticeCompleted({ resultId: newId });
     if (activeSession) {
       await attachActivity(activeSession.id, "drill", drill!.category);
       qc.invalidateQueries({ queryKey: ACTIVE_SESSION_QK(user.id) });
@@ -320,6 +411,19 @@ function RecordPage() {
         },
       },
     });
+    if (trainerId && trainerBlockId) {
+      await completeTrainerBlock({
+        sessionId: trainerId,
+        blockId: trainerBlockId,
+        resultId: newId,
+        score,
+        percentage: pct,
+      });
+      qc.invalidateQueries({ queryKey: TRAINER_SESSION_QK(trainerId) });
+      qc.invalidateQueries({ queryKey: TRAINER_CURRENT_QK(user.id) });
+      navigate({ to: "/trainer/$id", params: { id: trainerId } });
+      return;
+    }
     if (repeat) {
       navigate({ to: "/drill/$slug", params: { slug: drill!.slug } });
     } else {
@@ -331,23 +435,66 @@ function RecordPage() {
 
   return (
     <>
-      <PageHeader title={editId ? `Edit • ${drill.name}` : drill.name} subtitle={isJackInDitch ? "Pick the ditching bowl for each end" : `Tap to count ${attemptLabel} in each zone`} />
+      <PageHeader
+        title={editId ? `Edit • ${drill.name}` : drill.name}
+        subtitle={isJackInDitch ? "Pick the ditching bowl for each end" : `Tap to count ${attemptLabel} in each zone`}
+        leading={
+          !editId ? (
+            <ExitPracticeButton
+              activity={practiceActivity}
+              hasCurrentStats={currentBowlsDelivered > 0}
+              onBeforePause={flushPracticeState}
+              onBeforeDiscard={flushPracticeState}
+              onSaved={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+              onDiscarded={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+            />
+          ) : undefined
+        }
+        footer={
+          !editId ? (
+            <div className="flex items-center justify-between rounded-2xl bg-white/15 px-4 py-2 text-xs backdrop-blur-sm">
+              <span className="font-semibold text-white/85">
+                {trainerBlock ? "Bowls Trainer block" : "Recording session"}
+              </span>
+              {!trainerBlock && (
+                <Link to="/drills" className="font-semibold text-white underline-offset-2 hover:underline">Change drill</Link>
+              )}
+            </div>
+          ) : undefined
+        }
+      />
 
       <main className="mx-auto -mt-4 max-w-md space-y-4 px-5 pb-8">
-        {!editId && (
-          <div className="flex items-center justify-between rounded-2xl bg-secondary/40 px-4 py-2 text-xs">
-            <span className="font-semibold text-muted-foreground">Recording session</span>
-            <Link to="/drills" className="font-semibold text-primary">Change drill</Link>
-          </div>
+        {trainerBlock && (
+          <section className="rounded-2xl border border-primary/40 bg-primary/5 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-primary">Bowls Trainer block</p>
+            <p className="font-display text-base font-bold leading-tight">{trainerBlock.title}</p>
+            {rx.chips.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {rx.chips.map((c) => (
+                  <span key={c} className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+                    {c}
+                  </span>
+                ))}
+              </div>
+            )}
+            {prescription?.variantDescription && (
+              <p className="mt-1 text-xs text-muted-foreground">{prescription.variantDescription}</p>
+            )}
+          </section>
         )}
+
+
+
 
         {isJackInDitch && !editId ? (
           <JackInDitchEnds
             cats={cats}
             totalEnds={drill.bowls_per_end}
+            maxScore={drill.max_score}
             score={score}
-            pct={pct}
-            onChange={setCounts}
+            pct={liveBsi}
+            onChange={updateCounts}
           />
         ) : (
         <>
@@ -365,7 +512,7 @@ function RecordPage() {
             <div className="h-12 w-px bg-border" />
             <div>
               <p className="text-[11px] font-bold uppercase text-muted-foreground">BSI</p>
-              <p className="font-display text-3xl font-extrabold">{pct.toFixed(0)}</p>
+              <p className="font-display text-3xl font-extrabold">{liveBsi.toFixed(0)}</p>
             </div>
           </div>
           {!valid && (
@@ -400,6 +547,7 @@ function RecordPage() {
                 <p className="text-xs font-semibold" style={{ color: c.points >= 0 ? "var(--color-primary)" : "var(--color-destructive)" }}>
                   {c.points > 0 ? `+${c.points}` : c.points} pts
                 </p>
+                {c.note && <p className="mt-1 text-xs text-muted-foreground">{c.note}</p>}
               </div>
               <button
                 onClick={() => adjust(c.key, -1)}
@@ -467,6 +615,22 @@ function RecordPage() {
           </Button>
         )}
 
+        {practiceActivity && !editId && (
+          <PauseButton
+            activity={practiceActivity}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-secondary text-sm font-bold active:scale-[0.99] transition"
+            label="Pause / Save for later"
+            hasCurrentStats={currentBowlsDelivered > 0}
+            onBeforePause={flushPracticeState}
+            onBeforeDiscard={flushPracticeState}
+            onSaved={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+            onDiscarded={() => { setSavedOk(true); navigate({ to: "/dashboard" }); }}
+          />
+        )}
+
+
+
+
 
         {activeSession && (
           <button
@@ -479,28 +643,17 @@ function RecordPage() {
         )}
       </main>
 
-      <AlertDialog open={blocker.status === "blocked"}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Discard this drill session?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You haven't saved this session yet. Leaving now will discard your current bowls and the training time won't be recorded.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => blocker.reset?.()}>Resume session</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (drill) clearStart(drill.id);
-                blocker.proceed?.();
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Discard
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <LeavePracticeGuard
+        when={hasUnsaved}
+        activity={practiceActivity}
+        hasCurrentStats={currentBowlsDelivered > 0}
+        onBeforeSave={flushPracticeState}
+        onBeforeDiscard={flushPracticeState}
+        onLeaving={() => {
+          if (drill) clearStart(drill.id);
+          setSavedOk(true);
+        }}
+      />
 
       {activeSession && (
         <EndSessionDialog
@@ -530,12 +683,14 @@ type Cat = { key: string; label: string; points: number };
 function JackInDitchEnds({
   cats,
   totalEnds,
+  maxScore,
   score,
   pct,
   onChange,
 }: {
   cats: Cat[];
   totalEnds: number;
+  maxScore: number;
   score: number;
   pct: number;
   onChange: (counts: Record<string, number>) => void;
@@ -641,7 +796,7 @@ function JackInDitchEnds({
         <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Final result</p>
         <p className="mt-1 font-display text-5xl font-extrabold text-primary">
           {score}
-          <span className="text-2xl text-muted-foreground">/40</span>
+          <span className="text-2xl text-muted-foreground">/{maxScore}</span>
         </p>
         <p className="mt-1 text-sm font-semibold text-muted-foreground">BSI {pct.toFixed(0)}</p>
       </div>

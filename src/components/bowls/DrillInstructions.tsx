@@ -33,6 +33,10 @@ const TIPS: Record<string, string[]> = {
   "jack-in-ditch": [
     "Focus on the target, keep your delivery smooth.",
   ],
+  "lead-drill": [
+    "Check which jack the next bowl belongs to before you start your routine — front, back, front, back.",
+    "Change length with a longer or shorter backswing, not extra effort.",
+  ],
   "jack-delivery-accuracy": [
     "Use the same routine as your bowl delivery.",
     "Pick a length and commit — adjust on the next end if needed.",
@@ -90,8 +94,22 @@ export function DrillInstructions({
         </Section>
       )}
 
-      <Section title="Attempts">
+      <Section title="Format">
         {(() => {
+          // Jack in the Ditch models `bowls_per_end` as the number of ENDS —
+          // each end runs until the jack is ditched (max 4 bowls).
+          if (drill.slug === "jack-in-ditch") {
+            const endCount = drill.bowls_per_end;
+            return (
+              <p className="text-sm">
+                <span className="font-display text-xl font-extrabold">{endCount}</span>{" "}
+                <span className="text-muted-foreground">
+                  ends · up to 4 bowls per end · each end finishes as soon as the jack
+                  enters the ditch · score range {drill.min_score}–{drill.max_score} pts
+                </span>
+              </p>
+            );
+          }
           const ends = drill.scoring_config.ends ?? 1;
           const total = ends * drill.bowls_per_end;
           return (
@@ -107,17 +125,42 @@ export function DrillInstructions({
         })()}
       </Section>
 
+      {(drill.scoring_config as { bowl_hands?: string[] }).bowl_hands?.length ? (
+        <Section title="Delivery order (each end)">
+          <ul className="space-y-1 text-sm">
+            {(drill.scoring_config as { bowl_hands: string[] }).bowl_hands.map((hand, i) => {
+              const targets = (drill.scoring_config as { bowl_targets?: string[] }).bowl_targets;
+              return (
+                <li key={i} className="flex items-center justify-between">
+                  <span>
+                    Bowl {i + 1}
+                    {targets?.[i] && (
+                      <span className="ml-2 text-xs text-muted-foreground">→ {targets[i]}</span>
+                    )}
+                  </span>
+                  <span className="font-display font-bold capitalize">{hand}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      ) : null}
+
+
       <Section title="Scoring rules">
         <ul className="space-y-1.5">
           {drill.scoring_config.categories.map((c) => (
-            <li key={c.key} className="flex items-center justify-between text-sm">
-              <span>{c.label}</span>
-              <span
-                className="font-display font-bold"
-                style={{ color: c.points >= 0 ? "var(--color-primary)" : "var(--color-destructive)" }}
-              >
-                {c.points > 0 ? `+${c.points}` : c.points} pts
-              </span>
+            <li key={c.key} className="text-sm">
+              <div className="flex items-center justify-between">
+                <span>{c.label}</span>
+                <span
+                  className="font-display font-bold"
+                  style={{ color: c.points >= 0 ? "var(--color-primary)" : "var(--color-destructive)" }}
+                >
+                  {c.points > 0 ? `+${c.points}` : c.points} pts
+                </span>
+              </div>
+              {c.note && <p className="mt-0.5 text-xs text-muted-foreground">{c.note}</p>}
             </li>
           ))}
         </ul>

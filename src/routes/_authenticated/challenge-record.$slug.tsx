@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate, useBlocker } from "@tanstack/react-router";
+import { CURRENT_MEASURE_V } from "@/lib/measurement";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
@@ -41,15 +42,21 @@ import {
 import { Trophy, Check, X, Sparkles, BarChart3, Target, Crosshair, Zap } from "lucide-react";
 import { ChallengeResultMeta } from "@/components/bowls/ChallengeResultMeta";
 import { toast } from "sonner";
-import { ACTIVE_SESSION_QK, SESSIONS_QK, attachActivity, getActiveSession } from "@/lib/sessions";
+import { ACTIVE_SESSION_QK, SESSIONS_QK, attachActivity, getActiveSession, ensureActivePractice } from "@/lib/sessions";
 import { isDemoMode } from "@/lib/demo-mode";
 import { SlimedRecorder } from "@/components/bowls/SlimedRecorder";
 import { Switch32Recorder } from "@/components/bowls/Switch32Recorder";
+import { TargetStage } from "@/components/bowls/TargetStage";
 import { VisualTarget, type VisualTap } from "@/components/bowls/VisualTarget";
 import { GhostBanner } from "@/components/bowls/GhostBanner";
+import { DeliveryOrderStrip } from "@/components/bowls/DeliveryOrderStrip";
+
+/** Keep It Up delivery sequence — fixed forehand, forehand, backhand, backhand. */
+const KEEP_IT_UP_HANDS: ("forehand" | "backhand")[] = ["forehand", "forehand", "backhand", "backhand"];
 
 type ScoringMode = "simple" | "visual";
 const SCORING_MODE_KEY = "bowls.scoringMode";
+
 function readScoringMode(): ScoringMode {
   if (typeof window === "undefined") return "simple";
   return localStorage.getItem(SCORING_MODE_KEY) === "visual" ? "visual" : "simple";
@@ -132,6 +139,7 @@ const optionalSearchString = z.preprocess(
 
 const searchSchema = z.object({
   start: optionalSearchString,
+  resume: optionalSearchString,
   ghost: optionalSearchString,
   ghostName: optionalSearchString,
   ghostScore: optionalSearchString,
@@ -144,7 +152,7 @@ export const Route = createFileRoute("/_authenticated/challenge-record/$slug")({
 
 function ChallengeRecordPage() {
   const { slug } = Route.useParams();
-  const { start, ghost, ghostName, ghostScore } = Route.useSearch();
+  const { start, resume, ghost, ghostName, ghostScore } = Route.useSearch();
   const ghostScoreNumber = ghostScore == null ? null : Number(ghostScore);
 
   const { data: challenge } = useQuery({
@@ -170,7 +178,7 @@ function ChallengeRecordPage() {
   }
 
   const recorder = challenge.config?.variant === "slimed" ? (
-    <SlimedRecorder challenge={challenge} start={start} />
+    <SlimedRecorder challenge={challenge} start={start} resume={resume} />
   ) : challenge.config?.variant === "switch-32" ? (
     <Switch32Recorder challenge={challenge} start={start} />
   ) : challenge.config?.variant === "drive-draw" ? (
@@ -305,18 +313,16 @@ function KeepItUpRecorder({ challenge }: { challenge: Challenge }) {
     setSaving(true);
     const completedAt = new Date();
     const startIso = startedAt ?? ensureChallengeStart(challenge.id);
-    const durationMinutes = Math.max(
-      1,
-      Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000),
-    );
+    const durationMinutes = Math.min(60, Math.max(1, Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000)));
     const breakdown = {
+      measure_v: CURRENT_MEASURE_V,
       type: "keep-it-up" as const,
       ends_survived: completedEnds.length,
       ends: completedEnds,
       per_bowl: summariseKeepItUp(completedEnds),
       scoring_mode: mode,
     };
-    const activeSession = await getActiveSession(user.id);
+    const activeSession = await ensureActivePractice(user.id);
     if (isDemoMode()) {
       setSaving(false);
       clearChallengeStart(challenge.id);
@@ -405,7 +411,16 @@ function KeepItUpRecorder({ challenge }: { challenge: Challenge }) {
                 <h3 className="font-display text-lg font-bold">End {currentEndNumber}</h3>
                 <p className="text-xs font-semibold text-muted-foreground">{bowlsAvailable} bowl{bowlsAvailable === 1 ? "" : "s"} in play</p>
               </div>
+              <DeliveryOrderStrip
+                className="mt-3"
+                bowls={currentOutcomes.map((outcome, idx) => ({
+                  number: idx + 1,
+                  hand: KEEP_IT_UP_HANDS[idx] ?? "forehand",
+                  placed: !!outcome,
+                }))}
+              />
               <div className="mt-3 space-y-2">
+
                 {currentOutcomes.map((outcome, idx) => (
                   <div key={idx} className="rounded-xl bg-secondary/40 p-3">
                     <div className="mb-2 flex items-center justify-between">
@@ -444,7 +459,8 @@ function KeepItUpRecorder({ challenge }: { challenge: Challenge }) {
                         <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                           Position (optional — not scored)
                         </p>
-                        <VisualTarget
+                        <TargetStage
+                          caption="Tap where the bowl finished"
                           value={currentTaps[idx] ? { x: currentTaps[idx]!.x, y: currentTaps[idx]!.y } : null}
                           onSelect={(tap) => setBowlPosition(idx, tap)}
                         />
@@ -692,12 +708,10 @@ function FixedEndsRecorder({ challenge }: { challenge: Challenge }) {
     setSaving(true);
     const completedAt = new Date();
     const startIso = startedAt ?? ensureChallengeStart(challenge.id);
-    const durationMinutes = Math.max(
-      1,
-      Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000),
-    );
+    const durationMinutes = Math.min(60, Math.max(1, Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000)));
     const total = completedEnds.reduce((s, e) => s + e.end_score, 0);
     const breakdown = {
+      measure_v: CURRENT_MEASURE_V,
       type: "fixed-ends" as const,
       ends: completedEnds,
       total_score: total,
@@ -705,7 +719,7 @@ function FixedEndsRecorder({ challenge }: { challenge: Challenge }) {
       accuracy_pct: maxScore > 0 ? Math.round((total / maxScore) * 1000) / 10 : 0,
       scoring_mode: mode,
     };
-    const activeSession = await getActiveSession(user.id);
+    const activeSession = await ensureActivePractice(user.id);
     if (isDemoMode()) {
       setSaving(false);
       clearChallengeStart(challenge.id);
@@ -823,7 +837,8 @@ function FixedEndsRecorder({ challenge }: { challenge: Challenge }) {
                       )}
                     </div>
                     {mode === "visual" ? (
-                      <VisualTarget
+                      <TargetStage
+                        caption="Tap where the bowl finished"
                         value={currentTaps[idx] ? { x: currentTaps[idx]!.x, y: currentTaps[idx]!.y } : null}
                         onSelect={(tap) => setBowlVisual(idx, tap)}
                       />
@@ -1094,12 +1109,10 @@ function DriveDrawRecorder({ challenge }: { challenge: Challenge }) {
     setSaving(true);
     const completedAt = new Date();
     const startIso = startedAt ?? ensureChallengeStart(challenge.id);
-    const durationMinutes = Math.max(
-      1,
-      Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000),
-    );
+    const durationMinutes = Math.min(60, Math.max(1, Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000)));
     const total = completedEnds.reduce((s, e) => s + e.end_score, 0);
     const breakdown = {
+      measure_v: CURRENT_MEASURE_V,
       type: "drive-draw" as const,
       total_ends: totalEnds,
       bowls_per_end: bowlsPerEnd,
@@ -1109,7 +1122,7 @@ function DriveDrawRecorder({ challenge }: { challenge: Challenge }) {
       max_score: maxScore,
       scoring_mode: mode,
     };
-    const activeSession = await getActiveSession(user.id);
+    const activeSession = await ensureActivePractice(user.id);
     if (isDemoMode()) {
       setSaving(false);
       clearChallengeStart(challenge.id);
@@ -1311,7 +1324,7 @@ function DriveDrawRecorder({ challenge }: { challenge: Challenge }) {
                           {drawMarkers.length}/2 placed
                         </span>
                       </div>
-                      <VisualTarget
+                      <TargetStage
                         onSelect={(tap) => {
                           const slot = nextDrawIdx ?? 1;
                           setDrawTapAt(slot, tap, hands.draw);
@@ -1685,10 +1698,7 @@ function JackInDitchRecorder({ challenge }: { challenge: Challenge }) {
     setSaving(true);
     const completedAt = new Date();
     const startIso = startedAt ?? ensureChallengeStart(challenge.id);
-    const durationMinutes = Math.max(
-      1,
-      Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000),
-    );
+    const durationMinutes = Math.min(60, Math.max(1, Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000)));
     const total = completedEnds.reduce((s, e) => s + e.end_score, 0);
     const perfectEnds = completedEnds.filter((e) => e.perfect_end).length;
     const driveGateSuccesses = completedEnds.reduce(
@@ -1700,6 +1710,7 @@ function JackInDitchRecorder({ challenge }: { challenge: Challenge }) {
       0,
     );
     const breakdown = {
+      measure_v: CURRENT_MEASURE_V,
       type: "jack-in-ditch" as const,
       ends: completedEnds,
       total_score: total,
@@ -1708,7 +1719,7 @@ function JackInDitchRecorder({ challenge }: { challenge: Challenge }) {
       drive_gate_successes: driveGateSuccesses,
       jack_hits: jackHits,
     };
-    const activeSession = await getActiveSession(user.id);
+    const activeSession = await ensureActivePractice(user.id);
     if (isDemoMode()) {
       setSaving(false);
       clearChallengeStart(challenge.id);

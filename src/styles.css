@@ -89,6 +89,18 @@
 
   --gradient-primary: linear-gradient(135deg, var(--primary), var(--primary-glow));
   --gradient-hero: linear-gradient(160deg, oklch(0.30 0.06 156), oklch(0.44 0.09 156));
+
+  /* Club white-label tokens — defaults fall back to Bowls Trainer branding */
+  --club-primary: var(--primary);
+  --club-primary-foreground: var(--primary-foreground);
+  --club-secondary: var(--secondary);
+  --club-secondary-foreground: var(--secondary-foreground);
+  --club-accent: var(--accent);
+  --club-surface: var(--card);
+  /* Controlled brand highlight (accent) — only rendered in managed club context */
+  --club-highlight: var(--club-accent);
+  --club-highlight-foreground: var(--accent-foreground);
+
 }
 
 .dark {
@@ -128,6 +140,35 @@
 @utility bt-gradient-primary { background: var(--gradient-primary); }
 @utility bt-shadow-card { box-shadow: var(--shadow-card); }
 @utility bt-shadow-elevated { box-shadow: var(--shadow-elevated); }
+@utility bt-club-gradient { background: linear-gradient(160deg, var(--club-primary), color-mix(in oklab, var(--club-secondary, var(--club-primary)) 65%, black)); }
+@utility bt-club-surface { background: var(--club-surface); }
+@utility bt-club-text { color: var(--club-primary); }
+@utility bt-club-accent { color: var(--club-accent); }
+
+/* Managed-club accent details. Inert unless a managed branded club is active. */
+@utility bt-club-rule {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--club-highlight);
+  opacity: 0;
+}
+[data-club-branded="true"] .bt-club-rule { opacity: 1; }
+
+@utility bt-nav-indicator {
+  background: var(--primary);
+}
+[data-club-branded="true"] .bt-nav-indicator { background: var(--club-highlight); }
+
+/* Restrained yellow punctuation on branded primary actions only (not icon tiles). */
+[data-club-branded="true"] :is(a, button).bt-gradient-primary {
+  box-shadow: inset 0 -3px 0 var(--club-highlight);
+}
+
+@utility bt-club-chip {
+  background: color-mix(in oklab, var(--club-highlight) 18%, transparent);
+  color: var(--club-highlight-foreground);
+}
+
 
 /* Full-screen visual scoring mode: hide bottom nav, drop layout padding. */
 body.bt-fullscreen-scoring [data-bottom-nav] { display: none !important; }

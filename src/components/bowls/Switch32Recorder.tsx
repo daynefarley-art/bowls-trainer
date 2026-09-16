@@ -1,4 +1,5 @@
 import { Link, useBlocker, useNavigate } from "@tanstack/react-router";
+import { CURRENT_MEASURE_V } from "@/lib/measurement";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,7 +15,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { VisualTarget, type VisualTap } from "@/components/bowls/VisualTarget";
+import { type VisualTap } from "@/components/bowls/VisualTarget";
+import { TargetStage } from "@/components/bowls/TargetStage";
 import {
   clearChallengeStart,
   ensureChallengeStart,
@@ -37,9 +39,12 @@ import {
   SESSIONS_QK,
   attachActivity,
   getActiveSession,
+  ensureActivePractice,
 } from "@/lib/sessions";
 import { Trophy, BarChart3, Check, X, Sparkles, RotateCcw, Play } from "lucide-react";
 import { ChallengeResultMeta } from "@/components/bowls/ChallengeResultMeta";
+import { DeliveryOrderStrip, type DeliveryPill } from "@/components/bowls/DeliveryOrderStrip";
+import { EndPickerStrip, type EndChip } from "@/components/bowls/EndPickerStrip";
 import { toast } from "sonner";
 import { isDemoMode } from "@/lib/demo-mode";
 
@@ -85,11 +90,10 @@ function buildPlan(): PlannedEnd[] {
   for (let i = 0; i < SWITCH32_TOTAL_ENDS; i++) {
     const target = pickTarget(prev);
     prev = target;
+    // TRUE independent random hand for EVERY delivery: no alternation, no
+    // balancing, no anti-repeat. Four forehands in a row is a valid sequence.
     const hands: Switch32Hand[] = [];
     for (let b = 0; b < SWITCH32_BOWLS_PER_END; b++) hands.push(pickHand());
-    // Guarantee at least one of each hand per end for balance.
-    if (!hands.includes("forehand")) hands[0] = "forehand";
-    if (!hands.includes("backhand")) hands[hands.length - 1] = "backhand";
     ends.push({ target, hands });
   }
   return ends;
@@ -184,6 +188,24 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
     });
   }
 
+  /** Reposition an already-placed bowl of the current end (visual mode). */
+  function moveBowl(bowlInEnd: number, tap: VisualTap) {
+    setBowlsThisEnd((prev) =>
+      prev.map((b) =>
+        b.bowl_in_end === bowlInEnd
+          ? {
+              ...b,
+              score: scoreFromTap(tap),
+              x: tap.x,
+              y: tap.y,
+              line: classifyLine(tap.x, b.hand),
+              weight: classifyWeight(tap.y),
+            }
+          : b,
+      ),
+    );
+  }
+
   function undoBowl() {
     if (bowlsThisEnd.length > 0) {
       setBowlsThisEnd(bowlsThisEnd.slice(0, -1));
@@ -201,6 +223,24 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
 
   function clearEnd() {
     setBowlsThisEnd([]);
+  }
+
+  /**
+   * Jump back to a previously completed end to correct a bowl. Pops the
+   * chosen end from completedEnds and loads its bowls into the live editor.
+   * Any in-progress bowls on the current end are discarded (rare; the user
+   * chose to go back).
+   */
+  function jumpToEnd(endNumber: number) {
+    const target = endNumber - 1;
+    if (target < 0 || target >= SWITCH32_TOTAL_ENDS) return;
+    if (target >= completedEnds.length) return;
+    const chosen = completedEnds[target];
+    setCompletedEnds(completedEnds.slice(0, target));
+    setEndIdx(target);
+    setBowlsThisEnd(chosen.bowls);
+    setEndReady(true);
+    setFinished(false);
   }
 
   const visualMarkers = useMemo(
@@ -221,10 +261,7 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
     setSaving(true);
     const completedAt = new Date();
     const startIso = startedAt ?? ensureChallengeStart(challenge.id);
-    const durationMinutes = Math.max(
-      1,
-      Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000),
-    );
+    const durationMinutes = Math.min(60, Math.max(1, Math.round((completedAt.getTime() - new Date(startIso).getTime()) / 60000)));
 
     // Summary aggregates
     const all = completedEnds.flatMap((e) => e.bowls);
@@ -245,6 +282,7 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
     }
 
     const breakdown: Switch32Breakdown = {
+      measure_v: CURRENT_MEASURE_V,
       type: "switch-32",
       mode: mode ?? "simple",
       ends: completedEnds,
@@ -255,7 +293,7 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
       by_hand,
     };
 
-    const activeSession = await getActiveSession(userId);
+    const activeSession = await ensureActivePractice(userId);
 
     if (isDemoMode()) {
       setSaving(false);
@@ -369,18 +407,9 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
               {SWITCH32_TARGET_LABEL[currentEnd.target].toUpperCase()}
             </p>
             <p className="mt-4 text-xs text-muted-foreground">
-              Four bowls at this target. Hands change bowl-by-bowl.
+              Four bowls at this target. Each bowl's hand is drawn at random and
+              revealed only when it is your turn to play it.
             </p>
-            <div className="mt-4 flex items-center justify-center gap-2">
-              {currentEnd.hands.map((h, i) => (
-                <span
-                  key={i}
-                  className="rounded-full bg-secondary/60 px-3 py-1 text-[11px] font-bold uppercase tracking-wide"
-                >
-                  {i + 1}: {h === "forehand" ? "FH" : "BH"}
-                </span>
-              ))}
-            </div>
             <Button
               onClick={() => setEndReady(true)}
               className="mt-6 h-16 w-full rounded-2xl text-base font-bold bt-shadow-elevated"
@@ -428,6 +457,22 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
           </div>
         </section>
 
+        {/* Always-visible ends navigator — tap a completed end to edit. */}
+        {!finished && (
+          <section className="rounded-2xl bg-card p-3 bt-shadow-card">
+            <EndPickerStrip
+              ends={Array.from({ length: SWITCH32_TOTAL_ENDS }, (_, i): EndChip => ({
+                end: i + 1,
+                submitted: i < completedEnds.length,
+                current: i === endIdx,
+                reachable: i <= completedEnds.length,
+                score: i < completedEnds.length ? completedEnds[i].end_score : null,
+              }))}
+              onJump={jumpToEnd}
+            />
+          </section>
+        )}
+
         {!finished && currentEnd && currentHand ? (
           <section className="rounded-2xl bg-card p-5 bt-shadow-card">
             <div className="flex items-center justify-between">
@@ -435,9 +480,6 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
                 <p className="text-[10px] font-bold uppercase tracking-wider text-primary">
                   End {endIdx + 1} · Target {SWITCH32_TARGET_LABEL[currentEnd.target]}
                 </p>
-                <h3 className="font-display text-xl font-bold">
-                  Bowl {bowlIdx + 1} of {SWITCH32_BOWLS_PER_END} · {currentHand === "forehand" ? "Forehand" : "Backhand"}
-                </h3>
                 <p className="text-xs text-muted-foreground">
                   End score so far: {bowlsThisEnd.reduce((s, b) => s + b.score, 0)}
                 </p>
@@ -467,6 +509,37 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
               </div>
             </div>
 
+            <div className="mt-3 rounded-xl bg-secondary/50 px-3 py-2 text-center">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Bowl {Math.min(bowlIdx + 1, SWITCH32_BOWLS_PER_END)} · Play this hand
+              </p>
+              <p
+                className="font-display text-2xl font-extrabold"
+                style={{
+                  color:
+                    currentHand === "backhand"
+                      ? "var(--color-bowl-backhand)"
+                      : "var(--color-bowl-forehand)",
+                }}
+              >
+                {currentHand === "backhand" ? "BACKHAND" : "FOREHAND"}
+              </p>
+            </div>
+
+            <div className="mt-3">
+              <DeliveryOrderStrip
+                bowls={currentEnd.hands.map((h, i): DeliveryPill => ({
+                  number: i + 1,
+                  hand: h,
+                  placed: i < bowlsThisEnd.length,
+                  current: i === bowlIdx,
+                  // Future hands stay hidden — the player must not know what is next.
+                  unknown: i > bowlIdx,
+                }))}
+              />
+            </div>
+
+
             {mode === "simple" ? (
               <div className="mt-4 grid grid-cols-4 gap-2">
                 <SimpleButton onClick={() => recordSimple(5)} icon={<Sparkles className="h-5 w-5" />} label="Half Mat" sub="5" tone="primary" />
@@ -475,17 +548,15 @@ export function Switch32Recorder({ challenge, start }: { challenge: Challenge; s
                 <SimpleButton onClick={() => recordSimple(0)} icon={<X className="h-5 w-5" />} label="Miss" sub="0" tone="destructive" />
               </div>
             ) : (
-              <div className="mt-4">
-                <VisualTarget
-                  onSelect={recordVisual}
-                  hand={currentHand}
-                  markers={visualMarkers}
-                  currentNumber={bowlIdx + 1}
-                />
-                <p className="mt-2 text-center text-[10px] text-muted-foreground">
-                  Tap where bowl {bowlIdx + 1} finished — score is calculated automatically.
-                </p>
-              </div>
+              <TargetStage
+                className="mt-4"
+                caption={`Bowl ${bowlIdx + 1} · ${currentHand === "backhand" ? "Backhand" : "Forehand"} — tap to place, drag to adjust`}
+                onSelect={recordVisual}
+                onMoveMarker={moveBowl}
+                hand={currentHand}
+                markers={visualMarkers}
+                currentNumber={bowlIdx + 1}
+              />
             )}
           </section>
         ) : finished ? (
@@ -724,7 +795,7 @@ function Switch32Summary({
           <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Weight</p>
           <div className="mt-1 grid grid-cols-3 gap-2 text-center">
             <Cell label="Short" value={`${visualBreakdown.short}%`} />
-            <Cell label="Within a Mat" value={`${visualBreakdown.jackHigh}%`} tone="primary" />
+            <Cell label="Within 1 mat" value={`${visualBreakdown.jackHigh}%`} tone="primary" />
             <Cell label="Long" value={`${visualBreakdown.past}%`} />
           </div>
         </>

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/bowls/PageHeader";
 import { SESSIONS_QK, formatMinutes, type TrainingSession } from "@/lib/sessions";
+import { trainerLinkedTrainingSessionIds } from "@/lib/trainer";
 import { Clock, ChevronRight } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/sessions/")({
@@ -25,6 +26,14 @@ function SessionsListPage() {
     },
   });
 
+  // Which practice sessions came from a Bowls Trainer workout (link only — no
+  // schema change to training_sessions).
+  const { data: trainerSessionIds } = useQuery({
+    queryKey: ["trainer_linked_sessions", user.id],
+    queryFn: () => trainerLinkedTrainingSessionIds(user.id),
+  });
+
+
   const completed = (sessions ?? []).filter((s) => s.status === "complete");
   const active = (sessions ?? []).find((s) => s.status === "active");
 
@@ -34,7 +43,7 @@ function SessionsListPage() {
 
   return (
     <>
-      <PageHeader title="Training sessions" subtitle="Your full training history" />
+      <PageHeader title="Practice history" subtitle="Your full practice history" />
       <main className="mx-auto -mt-4 max-w-md space-y-4 px-5 pb-8">
         {active && (
           <Link
@@ -91,6 +100,12 @@ function SessionsListPage() {
                       {formatMinutes(s.total_duration_minutes)}
                     </span>
                   </p>
+                  {trainerSessionIds?.has(s.id) && (
+                    <span className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+                      Bowls Trainer
+                    </span>
+                  )}
+
                   <p className="truncate text-xs text-muted-foreground">
                     {s.total_activities} activit{s.total_activities === 1 ? "y" : "ies"} ·{" "}
                     {s.drills_completed} drill{s.drills_completed === 1 ? "" : "s"} ·{" "}
