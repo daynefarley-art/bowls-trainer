@@ -17,6 +17,7 @@ import appleTouch from "../assets/apple-touch-icon.png.asset.json";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { hideNativeSplash, markStartup, watchStartupFailures } from "@/lib/startup-diagnostics";
 
 function NotFoundComponent() {
   return (
@@ -105,6 +106,17 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
+
+  useEffect(() => {
+    // First real paint: record it, start watching for startup failures and
+    // let the native splash go so there is never a blank hand-off.
+    markStartup("first_paint");
+    watchStartupFailures();
+    hideNativeSplash();
+    // Belt and braces: if the app somehow never gets further, still reveal UI.
+    const safety = setTimeout(hideNativeSplash, 8000);
+    return () => clearTimeout(safety);
+  }, []);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {

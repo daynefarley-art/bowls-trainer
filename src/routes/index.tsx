@@ -2,12 +2,17 @@ import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { Target, TrendingUp, Trophy } from "lucide-react";
 import { BTLogo } from "@/components/bowls/BTLogo";
+import { markStartup, withStartupTimeout } from "@/lib/startup-diagnostics";
 
 export const Route = createFileRoute("/")({
   beforeLoad: async () => {
     if (typeof window === "undefined") return;
-    const { data } = await supabase.auth.getSession();
-    if (data.session) throw redirect({ to: "/dashboard" });
+    // Bounded so a stalled session read can never hold the first screen blank;
+    // on timeout the public landing page renders as normal.
+    markStartup("auth_check_start", "landing");
+    const result = await withStartupTimeout(supabase.auth.getSession(), 5000, "auth.getSession");
+    markStartup("auth_check_done", "landing");
+    if (result?.data.session) throw redirect({ to: "/dashboard" });
   },
   component: Landing,
 });
@@ -36,9 +41,10 @@ function Landing() {
         </div>
       </header>
       <main className="mx-auto max-w-md px-6 py-10 space-y-4">
-        <Feature icon={<Target className="h-6 w-6" />} title="Structured drills" desc="Start with the 8 Bowl Draw Test. More drills coming." />
-        <Feature icon={<TrendingUp className="h-6 w-6" />} title="Track progress" desc="See your scores trend over time with charts." />
-        <Feature icon={<Trophy className="h-6 w-6" />} title="Bowls Skill Index" desc="A single number to measure your level." />
+        <Feature icon={<Target className="h-6 w-6" />} title="Structured Drills" desc="Complete guided lawn bowls drills designed to improve consistency, accuracy and confidence." />
+        <Feature icon={<TrendingUp className="h-6 w-6" />} title="Track Progress" desc="Analyse your performance with detailed insights, trends and coaching feedback." />
+        <Feature icon={<Trophy className="h-6 w-6" />} title="Bowls Skill Index" desc="Your overall performance rating, calculated from every recorded session." />
+
       </main>
     </div>
   );

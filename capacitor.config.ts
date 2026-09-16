@@ -29,12 +29,15 @@ const config: CapacitorConfig = {
     // Uses the same live-web model as iOS
   },
   server: {
-    url: "https://bowlmate-progress-tracker.lovable.app",
+    // Canonical production origin (see src/lib/canonical-url.ts).
+    url: "https://app.bowlstrainer.com",
     cleartext: false,
     androidScheme: "https",
     iosScheme: "https",
     // Allow navigation to Supabase auth endpoints without leaving the app.
+    // The Lovable host stays allowed as a transition-only fallback.
     allowNavigation: [
+      "app.bowlstrainer.com",
       "bowlmate-progress-tracker.lovable.app",
       "*.supabase.co",
       "*.lovable.app",
@@ -42,9 +45,18 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 1200,
+      // The web app is loaded over the network on every cold launch, so the old
+      // 1.2s auto-hide could reveal an empty WebView. The app now hides the
+      // splash itself after the first real paint (hideNativeSplash in
+      // src/lib/startup-diagnostics.ts). The long duration below is only a
+      // native backstop so the splash can never become permanent — the native
+      // "couldn't load / Try again" screen takes over from there.
+      launchShowDuration: 10000,
+      launchAutoHide: true,
       backgroundColor: "#0F5132",
-      showSpinner: false,
+      showSpinner: true,
+      iosSpinnerStyle: "large",
+      spinnerColor: "#FFFFFF",
     },
   },
 };
